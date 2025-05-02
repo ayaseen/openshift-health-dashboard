@@ -1,4 +1,4 @@
-// dashboard-temp/src/utils/logger.js
+// dashboard/src/utils/logger.js
 
 /**
  * Enhanced logging utility for the dashboard

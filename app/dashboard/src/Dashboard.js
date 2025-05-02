@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import './index.css';
 import TabNavigation from './components/TabNavigation';
 import UploadSection from './components/UploadSection';
 import OverviewTab from './components/OverviewTab';

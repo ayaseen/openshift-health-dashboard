@@ -3,7 +3,7 @@ set -e
 
 # Define variables
 DASHBOARD_DIR="app/dashboard"
-OUTPUT_DIR="app/web/static"
+OUTPUT_DIR="../web/static"
 RECHARTS_VERSION="2.7.2"
 REACT_VERSION="18.2.0"
 
@@ -11,84 +11,56 @@ REACT_VERSION="18.2.0"
 REGISTRY="quay-quay-registry.apps.ocp.rhlab.dev"
 NAMESPACE="ayaseen"
 IMAGE_NAME="dashboard"
-TAG="v0.1.0"
+TAG="v0.1.1"
 IMAGE="${REGISTRY}/${NAMESPACE}/${IMAGE_NAME}:${TAG}"
 GO_VERSION="1.24.2" # Updated Go version
 
 echo "=== Building OpenShift Health Dashboard ==="
 
+# Force remove previous builds to ensure clean state
+rm -rf $DASHBOARD_DIR/build
+rm -rf $DASHBOARD_DIR/node_modules
+rm -rf app/web/static/*
+
 # Navigate to the dashboard directory
-cd $DASHBOARD_DIR
 
-# Check if required files exist
-if [ ! -f "src/index.js" ]; then
-  echo "ERROR: Missing src/index.js file. Please check that all required files are present."
-  exit 1
-fi
+cd app/dashboard
 
-if [ ! -f "public/index.html" ]; then
-  echo "ERROR: Missing public/index.html file. Please check that all required files are present."
-  exit 1
-fi
-
-# Clean previous node_modules to avoid conflicts
-echo "Cleaning node_modules..."
-rm -rf node_modules
-rm -f package-lock.json
-
-# Clear output directory to avoid stale files
-echo "Clearing output directory..."
-rm -rf ../$OUTPUT_DIR
-mkdir -p ../$OUTPUT_DIR
-
-# Install dependencies with clean install
-npm install -D tailwindcss postcss autoprefixer
+# Install fresh dependencies
 echo "Installing dependencies..."
-npm ci || npm install --no-audit --no-fund
-
-# Add required dependencies if missing
-if ! grep -q "recharts" package.json; then
-  echo "Adding recharts dependency..."
-  npm install --save recharts@$RECHARTS_VERSION
-fi
-
-if ! grep -q "react " package.json; then
-  echo "Adding React dependencies..."
-  npm install --save react@$REACT_VERSION react-dom@$REACT_VERSION
-fi
-
-# Ensure Tailwind CSS is properly installed and configured
-echo "Setting up Tailwind CSS..."
-npx tailwindcss init -p
+npm install --no-audit --no-fund
 
 # Force rebuild of CSS
 echo "Rebuilding CSS..."
 npx tailwindcss -i ./src/index.css -o ./src/tailwind.css
-cp ./src/tailwind.css ./src/index.css
 
-# Build the dashboard
-echo "Building the dashboard..."
-npm run build
+# Build the dashboard with production settings
+echo "Building the dashboard with production configuration..."
+NODE_ENV=production npm run build
 
-# Copy the built files to the output directory
-echo "Copying built files to $OUTPUT_DIR..."
-cp -r build/* ../$OUTPUT_DIR/
-
-# Verify index.html was created
-if [ -f "../$OUTPUT_DIR/index.html" ]; then
-  echo "Dashboard build completed successfully!"
-  echo "Files have been copied to ../$OUTPUT_DIR/"
-else
-  echo "ERROR: Failed to create index.html in output directory."
+# Verify build directory exists and contains index.html
+if [ ! -d "build" ] || [ ! -f "build/index.html" ]; then
+  echo "ERROR: Build failed - build directory or index.html missing"
   exit 1
 fi
+
+# Clear web/static directory and copy new files
+echo "Copying built files to web/static..."
+mkdir -p ../web/static
+cp -r build/* ../web/static/
+
+# Verify copied files
+echo "Files in web/static:"
+ls -la ../web/static
+echo "JS files in web/static:"
+ls -la ../web/static/js
 
 # Return to the original directory
 cd ../..
 
 echo "=== Dashboard Build Complete ==="
 
-
+podman system prune --all --force
 
 
 echo "=== Building OpenShift Health Dashboard Image ==="
@@ -163,6 +135,9 @@ WORKDIR /opt/app-root/src
 
 # Copy the binary
 COPY bin/manager /usr/local/bin/manager
+
+# Clear and recreate web directory to ensure fresh files
+RUN rm -rf /web/static && mkdir -p /web/static
 
 # Copy web assets for dashboard
 COPY app/web/static/ /web/static/

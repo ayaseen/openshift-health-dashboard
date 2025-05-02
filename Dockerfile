@@ -43,6 +43,9 @@ WORKDIR /opt/app-root/src
 # Copy the binary
 COPY bin/manager /usr/local/bin/manager
 
+# Clear and recreate web directory to ensure fresh files
+RUN rm -rf /web/static && mkdir -p /web/static
+
 # Copy web assets for dashboard
 COPY app/web/static/ /web/static/
 

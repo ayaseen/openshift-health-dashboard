@@ -11,22 +11,9 @@ module.exports = (env, argv) => {
     output: {
       path: path.resolve(__dirname, 'build'),
       filename: 'js/[name].[contenthash:8].js',
-      publicPath: '/'  // This ensures paths are correctly resolved
+      publicPath: '/',
+      clean: true, // Clean the output directory before emit
     },
-    devServer: {
-      historyApiFallback: true,
-      port: 3000,
-      hot: true,
-      proxy: {
-        '/api': {
-          target: 'http://localhost:8082',
-          changeOrigin: true,
-          logLevel: 'debug',
-          secure: false
-        }
-      }
-    },
-    devtool: isProduction ? false : 'source-map',
     module: {
       rules: [
         {
@@ -40,27 +27,12 @@ module.exports = (env, argv) => {
           }
         },
         {
-          // Update CSS processing pipeline to properly handle Tailwind
           test: /\.css$/,
           use: [
             isProduction ? MiniCssExtractPlugin.loader : 'style-loader',
             'css-loader',
-            'postcss-loader'  // Make sure postcss-loader is included here
+            'postcss-loader'
           ]
-        },
-        {
-          test: /\.(png|jpg|jpeg|gif|svg)$/,
-          type: 'asset/resource',
-          generator: {
-            filename: 'images/[name].[hash:8][ext]'
-          }
-        },
-        {
-          test: /\.(woff|woff2|eot|ttf|otf)$/,
-          type: 'asset/resource',
-          generator: {
-            filename: 'fonts/[name].[hash:8][ext]'
-          }
         }
       ]
     },
@@ -68,37 +40,20 @@ module.exports = (env, argv) => {
       new HtmlWebpackPlugin({
         template: './public/index.html',
         inject: true,
-        minify: isProduction ? {
-          removeComments: true,
-          collapseWhitespace: true,
-          removeRedundantAttributes: true,
-          useShortDoctype: true,
-          removeEmptyAttributes: true,
-          removeStyleLinkTypeAttributes: true,
-          keepClosingSlash: true,
-          minifyJS: true,
-          minifyCSS: true,
-          minifyURLs: true,
-        } : false
+        filename: 'index.html'
       }),
-      ...(isProduction ? [
-        new MiniCssExtractPlugin({
-          filename: 'css/[name].[contenthash:8].css'
-        })
-      ] : [])
+      new MiniCssExtractPlugin({
+        filename: 'css/[name].[contenthash:8].css'
+      })
     ],
     resolve: {
       extensions: ['.js', '.jsx']
     },
     optimization: {
-      minimize: isProduction,
+      runtimeChunk: 'single',
       splitChunks: {
         chunks: 'all',
-        name: false,
-      },
-      runtimeChunk: {
-        name: entrypoint => `runtime-${entrypoint.name}`,
-      },
-    },
+      }
+    }
   };
 };
