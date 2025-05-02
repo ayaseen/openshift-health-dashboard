@@ -3,8 +3,8 @@
 /.vscode/*
 content/
 checksum.go
-bin
-
+app/dashboard/build
+app/dashboard/node_modules
 # Binaries for programs and plugins
 *.exe
 *.exe~
@@ -13,11 +13,10 @@ bin
 *.dylib
 config
 test*.*
+*.sh
 resources.*
 main
 author*
-dashboard-temp/build
-dashboard-temp/node_modules
 
 # Test binary, built with `go test -c`
 *.test
@@ -31,5 +30,3 @@ dashboard-temp/node_modules
 # Go workspace file
 go.work
 /docs/
-resources/
-health-reports/

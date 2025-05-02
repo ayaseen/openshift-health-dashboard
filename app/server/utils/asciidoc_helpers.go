@@ -1,4 +1,4 @@
-// app/server/utils/asciidoc_parser.go
+// app/server/utils/asciidoc_helpers.go
 package utils
 
 import (
@@ -6,10 +6,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-
-	"github.com/ayaseen/openshift-health-dashboard/app/server/server"
-	"github.com/ayaseen/openshift-health-dashboard/app/server/types"
-	"github.com/ayaseen/openshift-health-dashboard/app/server/utils"
 )
 
 // IsValidAsciiDocFile checks if a filename has a valid AsciiDoc extension

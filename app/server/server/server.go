@@ -2,13 +2,17 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/ayaseen/openshift-health-dashboard/app/server/utils"
 )
 
 // Config holds server configuration
@@ -96,6 +100,84 @@ func (s *Server) setupHandler() {
 
 	// Store the handler
 	s.handler = mux
+}
+
+// HandleReportUpload processes uploaded AsciiDoc reports
+func (s *Server) HandleReportUpload(w http.ResponseWriter, r *http.Request) {
+	// Set content type header
+	w.Header().Set("Content-Type", "application/json")
+
+	// Check if the request method is POST
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.config.DebugMode {
+		log.Printf("Handling report upload request")
+	}
+
+	// Parse the multipart form with 10MB max memory
+	err := r.ParseMultipartForm(10 << 20)
+	if err != nil {
+		log.Printf("Error parsing form: %v", err)
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	// Get the file from the form
+	file, header, err := r.FormFile("report")
+	if err != nil {
+		log.Printf("Error getting file: %v", err)
+		http.Error(w, "Failed to get file", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	log.Printf("Received file: %s, size: %d bytes", header.Filename, header.Size)
+
+	// Check file extension
+	if !utils.IsValidAsciiDocFile(header.Filename) {
+		http.Error(w, "Invalid file type. Only .adoc or .asciidoc files are allowed", http.StatusBadRequest)
+		return
+	}
+
+	// Create a temporary file
+	tempFile, err := os.CreateTemp("", "report-*.adoc")
+	if err != nil {
+		log.Printf("Error creating temp file: %v", err)
+		http.Error(w, "Failed to process file", http.StatusInternalServerError)
+		return
+	}
+	defer os.Remove(tempFile.Name())
+	defer tempFile.Close()
+
+	// Copy the uploaded file to the temporary file
+	_, err = io.Copy(tempFile, file)
+	if err != nil {
+		log.Printf("Error copying file: %v", err)
+		http.Error(w, "Failed to process file", http.StatusInternalServerError)
+		return
+	}
+
+	// Parse the report
+	summary, err := utils.ParseAsciiDocExecutiveSummary(tempFile.Name())
+	if err != nil {
+		log.Printf("Error parsing report: %v", err)
+		http.Error(w, "Failed to parse report", http.StatusInternalServerError)
+		return
+	}
+
+	// Return the summary as JSON
+	if err := json.NewEncoder(w).Encode(summary); err != nil {
+		log.Printf("Error encoding JSON: %v", err)
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
+	}
+
+	if s.config.DebugMode {
+		log.Printf("Successfully processed report: %s", header.Filename)
+	}
 }
 
 // Start starts the HTTP server

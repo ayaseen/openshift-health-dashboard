@@ -6,8 +6,6 @@ import (
 	"os"
 
 	"github.com/ayaseen/openshift-health-dashboard/app/server/server"
-	"github.com/ayaseen/openshift-health-dashboard/app/server/types"
-	"github.com/ayaseen/openshift-health-dashboard/app/server/utils"
 )
 
 func main() {

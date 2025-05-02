@@ -2,16 +2,16 @@
 set -e
 
 # Define variables
-DASHBOARD_DIR="dashboard-temp"
-OUTPUT_DIR="../web/static"
+DASHBOARD_DIR="app/dashboard"
+OUTPUT_DIR="app/web/static"
 RECHARTS_VERSION="2.7.2"
 REACT_VERSION="18.2.0"
 
-# Define variables
+# Define image variables
 REGISTRY="quay-quay-registry.apps.ocp.rhlab.dev"
 NAMESPACE="ayaseen"
 IMAGE_NAME="operator"
-TAG="v0.1.1"
+TAG="v0.1.0"
 IMAGE="${REGISTRY}/${NAMESPACE}/${IMAGE_NAME}:${TAG}"
 GO_VERSION="1.24.2" # Updated Go version
 
@@ -36,26 +36,10 @@ echo "Cleaning node_modules..."
 rm -rf node_modules
 rm -f package-lock.json
 
-
 # Clear output directory to avoid stale files
 echo "Clearing output directory..."
-rm -rf ../web/static
-
-# Create the output directory
-mkdir -p ../web/static
-
-# Ensure public directory has basic files
-mkdir -p public
-
-
-# Check and add Webpack dependencies if needed
-if ! grep -q '"webpack":' package.json; then
-  npm install --save-dev webpack@5.88.2 webpack-cli@5.1.4 webpack-dev-server@4.15.1
-  npm install --save-dev html-webpack-plugin@5.5.3 mini-css-extract-plugin@2.7.6
-  npm install --save-dev babel-loader@9.1.3 @babel/core@7.22.10 @babel/preset-env@7.22.10 @babel/preset-react@7.22.5
-  npm install --save-dev css-loader@6.8.1 style-loader@3.3.3
-
-fi
+rm -rf ../$OUTPUT_DIR
+mkdir -p ../$OUTPUT_DIR
 
 # Install dependencies with clean install
 npm install -D tailwindcss postcss autoprefixer
@@ -82,27 +66,25 @@ echo "Rebuilding CSS..."
 npx tailwindcss -i ./src/index.css -o ./src/tailwind.css
 cp ./src/tailwind.css ./src/index.css
 
-
 # Build the dashboard
 echo "Building the dashboard..."
 npm run build
 
-
 # Copy the built files to the output directory
 echo "Copying built files to $OUTPUT_DIR..."
-cp -r build/* ../web/static/
+cp -r build/* ../$OUTPUT_DIR/
 
 # Verify index.html was created
-if [ -f "../web/static/index.html" ]; then
+if [ -f "../$OUTPUT_DIR/index.html" ]; then
   echo "Dashboard build completed successfully!"
-  echo "Files have been copied to ../web/static/"
+  echo "Files have been copied to ../$OUTPUT_DIR/"
 else
   echo "ERROR: Failed to create index.html in output directory."
   exit 1
 fi
 
 # Return to the original directory
-cd -
+cd ../..
 
 echo "=== Dashboard Build Complete ==="
 
@@ -126,17 +108,12 @@ fi
 
 # Build the Go binary with correct architecture
 echo "Building Go binary for Linux/amd64..."
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bin/manager cmd/manager/main.go
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bin/manager app/server/main.go
 
-# Build the static file server from the separate directory
-echo "Building static file server..."
-cd staticserver
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o ../bin/serve staticserver.go
-cd ..
+
 
 # Verify binary architecture
 file bin/manager
-file bin/serve
 echo "Binaries built successfully"
 
 # Create Dockerfile with Ruby 3.0
@@ -184,42 +161,38 @@ RUN mkdir -p /tmp/health-reports /tmp/health-checks /web/static && \
 # Configure working directory
 WORKDIR /opt/app-root/src
 
-# Copy the binaries
+# Copy the binary
 COPY bin/manager /usr/local/bin/manager
-COPY bin/serve /usr/local/bin/serve
 
 # Copy web assets for dashboard
-COPY web/static/ /web/static/
+COPY app/web/static/ /web/static/
 
 # Set permissions for OpenShift random UID compatibility
 RUN chmod -R g+rwX /web/static && \
-    chmod +x /usr/local/bin/manager /usr/local/bin/serve && \
-    chgrp -R 0 /usr/local/bin/manager /usr/local/bin/serve && \
-    chmod -R g=u /usr/local/bin/manager /usr/local/bin/serve
+    chmod +x /usr/local/bin/manager && \
+    chgrp -R 0 /usr/local/bin/manager && \
+    chmod -R g=u /usr/local/bin/manager
 
 # Create startup script with proper permissions
 RUN echo '#!/bin/bash' > /usr/local/bin/start.sh && \
-    echo 'echo "Starting static file server on port $STATIC_PORT"' >> /usr/local/bin/start.sh && \
-    echo '/usr/local/bin/serve &' >> /usr/local/bin/start.sh && \
-    echo 'echo "Starting manager service on port 8082"' >> /usr/local/bin/start.sh && \
+    echo 'echo "Starting OpenShift Health Dashboard on port $PORT"' >> /usr/local/bin/start.sh && \
     echo 'exec /usr/local/bin/manager' >> /usr/local/bin/start.sh && \
     chmod +x /usr/local/bin/start.sh && \
     chgrp 0 /usr/local/bin/start.sh && \
     chmod g=u /usr/local/bin/start.sh
 
-# Expose ports
-EXPOSE 8082
-EXPOSE 8084
+# Expose port
+EXPOSE 8080
 
-# Set environment variables
+# Set environment variables for the dashboard
 ENV STATIC_DIR=/web/static \
-    STATIC_PORT=8084 \
-    API_TARGET=http://localhost:8082
+    PORT=8080 \
+    DEBUG=false
 
 # Switch to non-root user
 USER ${USER_ID}
 
-# Use the startup script
+# Start the server
 ENTRYPOINT ["/usr/local/bin/start.sh"]
 
 INNEREOF
