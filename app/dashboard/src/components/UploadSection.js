@@ -18,11 +18,12 @@ const UploadSection = ({ file, loading, error, handleFileChange, handleUpload })
                         accept=".adoc,.asciidoc"
                         onChange={handleFileChange}
                         className="block w-full text-sm text-gray-500
-              file:mr-4 file:py-2 file:px-4
-              file:rounded-md file:border-0
-              file:text-sm file:font-medium
-              file:bg-indigo-50 file:text-indigo-700
-              hover:file:bg-indigo-100"
+                        file:mr-4 file:py-2 file:px-4
+                        file:rounded-md file:border-0
+                        file:text-sm file:font-medium
+                        file:bg-indigo-50 file:text-indigo-700
+                        hover:file:bg-indigo-100
+                        transition-colors duration-300"
                     />
                     {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
                 </div>
@@ -30,8 +31,8 @@ const UploadSection = ({ file, loading, error, handleFileChange, handleUpload })
                     <button
                         onClick={handleUpload}
                         disabled={!file || loading}
-                        className={`inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white 
-              ${!file || loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'}`}
+                        className={`inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white transition-all duration-300
+              ${!file || loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 hover:shadow-md'}`}
                     >
                         {loading ? (
                             <>
@@ -47,6 +48,17 @@ const UploadSection = ({ file, loading, error, handleFileChange, handleUpload })
                     </button>
                 </div>
             </div>
+
+            {file && !error && !loading && (
+                <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-md">
+                    <p className="text-sm text-blue-800">
+                        <span className="font-medium">Selected file:</span> {file.name} ({(file.size / 1024).toFixed(1)} KB)
+                    </p>
+                    <p className="text-xs text-blue-700 mt-1">
+                        Click "Upload and Analyze" to process the report.
+                    </p>
+                </div>
+            )}
         </div>
     );
 };

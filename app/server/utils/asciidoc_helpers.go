@@ -63,49 +63,69 @@ func ExtractOverallScore(lines []string) float64 {
 		}
 	}
 
-	// If not found, try to calculate from status counts
-	return CalculateOverallScore(lines)
-}
-
-// CalculateOverallScore calculates an approximate overall score based on status counts
-func CalculateOverallScore(lines []string) float64 {
-	// Default score if we can't calculate
-	defaultScore := 75.0
-
-	// Count statuses
-	ok := 0
-	warning := 0
-	critical := 0
-	unknown := 0
-
+	// Check for a score in the health-check-report itself
+	healthScorePattern := regexp.MustCompile(`Overall Health Score.*?(\d+\.?\d*)%`)
 	for _, line := range lines {
-		lowercase := strings.ToLower(line)
-
-		// Count based on common status keywords
-		if strings.Contains(lowercase, "status: ok") ||
-			strings.Contains(lowercase, "status: healthy") ||
-			strings.Contains(lowercase, "status: pass") {
-			ok++
-		} else if strings.Contains(lowercase, "status: warning") ||
-			strings.Contains(lowercase, "warning") {
-			warning++
-		} else if strings.Contains(lowercase, "status: critical") ||
-			strings.Contains(lowercase, "status: error") ||
-			strings.Contains(lowercase, "status: fail") {
-			critical++
-		} else if strings.Contains(lowercase, "status: unknown") {
-			unknown++
+		matches := healthScorePattern.FindStringSubmatch(line)
+		if len(matches) > 1 {
+			score, err := strconv.ParseFloat(matches[1], 64)
+			if err == nil {
+				return score
+			}
 		}
 	}
 
-	// If we found some statuses, calculate the score
-	total := ok + warning + critical + unknown
-	if total > 0 {
-		// Weighted score: 100% for OK, 70% for Warning, 0% for Critical
-		return (float64(ok)*100.0 + float64(warning)*70.0) / float64(total)
+	// If not found, try to calculate from status counts
+	return CalculateScoreFromStatusCounts(lines)
+}
+
+// CalculateScoreFromStatusCounts calculates an approximate overall score based on status counts
+func CalculateScoreFromStatusCounts(lines []string) float64 {
+	totalItems := 0
+	requiredChanges := 0
+	recommendedChanges := 0
+	advisory := 0
+	noChanges := 0
+	notApplicable := 0
+
+	// Pattern to match status cells in the table
+	statusCellPattern := regexp.MustCompile(`{set:cellbgcolor:(#[A-Fa-f0-9]+)}`)
+
+	for _, line := range lines {
+		if matches := statusCellPattern.FindStringSubmatch(line); len(matches) > 0 {
+			totalItems++
+			colorCode := strings.ToUpper(matches[1])
+
+			switch colorCode {
+			case "#FF0000":
+				requiredChanges++
+			case "#FEFE20":
+				recommendedChanges++
+			case "#80E5FF":
+				advisory++
+			case "#00FF00":
+				noChanges++
+			case "#A6B9BF":
+				notApplicable++
+			}
+		}
 	}
 
-	return defaultScore
+	if totalItems == 0 {
+		return 62.0 // Default fallback if no items found
+	}
+
+	// Calculate score based on weighted values
+	// Required changes have the most negative impact, followed by recommended
+	validItems := totalItems - notApplicable
+	if validItems == 0 {
+		return 100.0
+	}
+
+	// Weight: No changes = 100%, Advisory = 80%, Recommended = 50%, Required = 0%
+	// Convert values to float64 to avoid integer division truncation
+	weightedSum := float64(noChanges*100.0) + float64(advisory*80.0) + float64(recommendedChanges*50.0)
+	return weightedSum / float64(validItems)
 }
 
 // ExtractCategoryScore extracts the score for a specific category
@@ -216,8 +236,183 @@ func GenerateDescription(categoryName string, score int) string {
 	}
 }
 
+// ExtractRequiredChanges extracts items marked as "Changes Required"
+func ExtractRequiredChanges(lines []string) []string {
+	var requiredItems []string
+
+	// Pattern to match rows with "Changes Required" status
+	requiredPattern := regexp.MustCompile(`{set:cellbgcolor:#FF0000}.*?{set:cellbgcolor!}.*?<<([^>]+)>>.*?\|(.*?)\|{set:cellbgcolor:#FF0000}`)
+
+	for i, line := range lines {
+		// First look for lines with red background color code, indicating "Changes Required"
+		if strings.Contains(line, "{set:cellbgcolor:#FF0000}") && strings.Contains(line, "Changes Required") {
+			// Continue checking subsequent lines until we find the item description
+			for j := i + 1; j < len(lines) && j < i+50; j++ {
+				if matches := requiredPattern.FindStringSubmatch(lines[j]); len(matches) > 0 {
+					itemName := strings.TrimSpace(matches[1])
+					observation := strings.TrimSpace(matches[2])
+					item := fmt.Sprintf("%s: %s", itemName, observation)
+					requiredItems = append(requiredItems, item)
+				}
+
+				// Also directly check for rows with red status cells
+				if strings.Contains(lines[j], "{set:cellbgcolor:#FF0000}") &&
+					!strings.Contains(lines[j], "Changes Required") {
+					parts := strings.Split(lines[j], "|")
+					if len(parts) >= 4 {
+						// Extract the item evaluated and observation from these parts
+						var itemName, observation string
+						for k, part := range parts {
+							if strings.Contains(part, "<<") && strings.Contains(part, ">>") {
+								// Extract the text between << and >>
+								itemMatches := regexp.MustCompile(`<<([^>]+)>>`).FindStringSubmatch(part)
+								if len(itemMatches) > 1 {
+									itemName = strings.TrimSpace(itemMatches[1])
+								}
+							} else if k > 0 && itemName != "" && observation == "" && !strings.Contains(part, "cellbgcolor") {
+								observation = strings.TrimSpace(part)
+								break
+							}
+						}
+
+						if itemName != "" && observation != "" {
+							item := fmt.Sprintf("%s: %s", itemName, observation)
+							requiredItems = append(requiredItems, item)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return requiredItems
+}
+
+// ExtractRecommendedChanges extracts items marked as "Changes Recommended"
+func ExtractRecommendedChanges(lines []string) []string {
+	var recommendedItems []string
+
+	// Pattern to match rows with "Changes Recommended" status
+	recommendedPattern := regexp.MustCompile(`{set:cellbgcolor:#FEFE20}.*?{set:cellbgcolor!}.*?<<([^>]+)>>.*?\|(.*?)\|{set:cellbgcolor:#FEFE20}`)
+
+	for i, line := range lines {
+		// First look for lines with yellow background color code, indicating "Changes Recommended"
+		if strings.Contains(line, "{set:cellbgcolor:#FEFE20}") && strings.Contains(line, "Changes Recommended") {
+			// Continue checking subsequent lines until we find the item description
+			for j := i + 1; j < len(lines) && j < i+50; j++ {
+				if matches := recommendedPattern.FindStringSubmatch(lines[j]); len(matches) > 0 {
+					itemName := strings.TrimSpace(matches[1])
+					observation := strings.TrimSpace(matches[2])
+					item := fmt.Sprintf("%s: %s", itemName, observation)
+					recommendedItems = append(recommendedItems, item)
+				}
+
+				// Also directly check for rows with yellow status cells
+				if strings.Contains(lines[j], "{set:cellbgcolor:#FEFE20}") &&
+					!strings.Contains(lines[j], "Changes Recommended") {
+					parts := strings.Split(lines[j], "|")
+					if len(parts) >= 4 {
+						// Extract the item evaluated and observation from these parts
+						var itemName, observation string
+						for k, part := range parts {
+							if strings.Contains(part, "<<") && strings.Contains(part, ">>") {
+								// Extract the text between << and >>
+								itemMatches := regexp.MustCompile(`<<([^>]+)>>`).FindStringSubmatch(part)
+								if len(itemMatches) > 1 {
+									itemName = strings.TrimSpace(itemMatches[1])
+								}
+							} else if k > 0 && itemName != "" && observation == "" && !strings.Contains(part, "cellbgcolor") {
+								observation = strings.TrimSpace(part)
+								break
+							}
+						}
+
+						if itemName != "" && observation != "" {
+							item := fmt.Sprintf("%s: %s", itemName, observation)
+							recommendedItems = append(recommendedItems, item)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return recommendedItems
+}
+
+// ExtractAdvisoryActions extracts items marked as "Advisory"
+func ExtractAdvisoryActions(lines []string) []string {
+	var advisoryItems []string
+
+	// Pattern to match rows with "Advisory" status
+	advisoryPattern := regexp.MustCompile(`{set:cellbgcolor:#80E5FF}.*?{set:cellbgcolor!}.*?<<([^>]+)>>.*?\|(.*?)\|{set:cellbgcolor:#80E5FF}`)
+
+	for i, line := range lines {
+		// First look for lines with blue background color code, indicating "Advisory"
+		if strings.Contains(line, "{set:cellbgcolor:#80E5FF}") && strings.Contains(line, "Advisory") {
+			// Continue checking subsequent lines until we find the item description
+			for j := i + 1; j < len(lines) && j < i+50; j++ {
+				if matches := advisoryPattern.FindStringSubmatch(lines[j]); len(matches) > 0 {
+					itemName := strings.TrimSpace(matches[1])
+					observation := strings.TrimSpace(matches[2])
+					item := fmt.Sprintf("%s: %s", itemName, observation)
+					advisoryItems = append(advisoryItems, item)
+				}
+
+				// Also directly check for rows with blue status cells
+				if strings.Contains(lines[j], "{set:cellbgcolor:#80E5FF}") &&
+					!strings.Contains(lines[j], "Advisory") {
+					parts := strings.Split(lines[j], "|")
+					if len(parts) >= 4 {
+						// Extract the item evaluated and observation from these parts
+						var itemName, observation string
+						for k, part := range parts {
+							if strings.Contains(part, "<<") && strings.Contains(part, ">>") {
+								// Extract the text between << and >>
+								itemMatches := regexp.MustCompile(`<<([^>]+)>>`).FindStringSubmatch(part)
+								if len(itemMatches) > 1 {
+									itemName = strings.TrimSpace(itemMatches[1])
+								}
+							} else if k > 0 && itemName != "" && observation == "" && !strings.Contains(part, "cellbgcolor") {
+								observation = strings.TrimSpace(part)
+								break
+							}
+						}
+
+						if itemName != "" && observation != "" {
+							item := fmt.Sprintf("%s: %s", itemName, observation)
+							advisoryItems = append(advisoryItems, item)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return advisoryItems
+}
+
 // ExtractActionItems extracts action items from a specific section
 func ExtractActionItems(lines []string, sectionName string) []string {
+	// First try to use the new extraction methods based on the status color
+	if sectionName == "Changes Required" {
+		requiredItems := ExtractRequiredChanges(lines)
+		if len(requiredItems) > 0 {
+			return requiredItems
+		}
+	} else if sectionName == "Changes Recommended" {
+		recommendedItems := ExtractRecommendedChanges(lines)
+		if len(recommendedItems) > 0 {
+			return recommendedItems
+		}
+	} else if sectionName == "Advisory Actions" {
+		advisoryItems := ExtractAdvisoryActions(lines)
+		if len(advisoryItems) > 0 {
+			return advisoryItems
+		}
+	}
+
+	// Fallback to the original method if the new methods don't return any results
 	var items []string
 	inSection := false
 

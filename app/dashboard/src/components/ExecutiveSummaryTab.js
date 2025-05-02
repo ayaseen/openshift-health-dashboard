@@ -101,24 +101,52 @@ ${reportData.itemsAdvisory && reportData.itemsAdvisory.length > 0
             </div>
 
             <div className="mb-6">
-                <h3 className="text-lg font-semibold mb-2">Summary Preview</h3>
+                <h3 className="text-lg font-semibold mb-4">Summary Preview</h3>
                 <div className="bg-gray-50 p-4 rounded-md">
                     <h4 className="font-bold">OpenShift Health Check Executive Summary</h4>
                     <p className="text-gray-700">For: {customerName || 'Your Company'}</p>
                     <p className="text-gray-700">Overall Health Score: {reportData.overallScore}% ({getScoreRating(reportData.overallScore)})</p>
-                    <p className="text-gray-700">The report contains:</p>
-                    <ul className="list-disc ml-5 text-gray-700">
-                        <li>{reportData.itemsRequired?.length || 0} required changes</li>
-                        <li>{reportData.itemsRecommended?.length || 0} recommended changes</li>
-                        <li>{reportData.itemsAdvisory?.length || 0} advisory actions</li>
-                    </ul>
+
+                    <div className="mt-4">
+                        <h5 className="font-semibold">Category Scores:</h5>
+                        <ul className="list-disc ml-5 text-gray-700">
+                            <li>Infrastructure Setup: {reportData.scoreInfra}%</li>
+                            <li>Policy Governance: {reportData.scoreGovernance}%</li>
+                            <li>Compliance Benchmarking: {reportData.scoreCompliance}%</li>
+                            <li>Monitoring: {reportData.scoreMonitoring}%</li>
+                            <li>Build/Deploy Security: {reportData.scoreBuildSecurity}%</li>
+                        </ul>
+                    </div>
+
+                    <div className="mt-4">
+                        <h5 className="font-semibold">Actions Required:</h5>
+                        <ul className="list-disc ml-5 text-gray-700">
+                            <li>Required Changes: {reportData.itemsRequired?.length || 0}</li>
+                            <li>Recommended Changes: {reportData.itemsRecommended?.length || 0}</li>
+                            <li>Advisory Actions: {reportData.itemsAdvisory?.length || 0}</li>
+                        </ul>
+                    </div>
+
+                    {reportData.itemsRequired?.length > 0 && (
+                        <div className="mt-4">
+                            <h5 className="font-semibold text-red-700">Critical Items:</h5>
+                            <ul className="list-disc ml-5 text-gray-700">
+                                {reportData.itemsRequired.slice(0, 3).map((item, idx) => (
+                                    <li key={idx}>{item}</li>
+                                ))}
+                                {reportData.itemsRequired.length > 3 && (
+                                    <li>... and {reportData.itemsRequired.length - 3} more</li>
+                                )}
+                            </ul>
+                        </div>
+                    )}
                 </div>
             </div>
 
             <button
                 onClick={generateExecutiveSummary}
                 disabled={generating}
-                className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors duration-300"
             >
                 {generating ? 'Generating...' : 'Download as ADOC'}
             </button>

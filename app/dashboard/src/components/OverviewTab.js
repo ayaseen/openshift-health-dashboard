@@ -2,6 +2,19 @@ import React from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import { getScoreColor, getScoreRating, getHealthAssessment } from '../utils/scoreUtils';
 
+// Custom tooltip formatter for the charts
+const CustomTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+        return (
+            <div className="bg-white p-3 shadow-md rounded-md border border-gray-200">
+                <p className="font-medium">{`${payload[0].name}: ${payload[0].value}%`}</p>
+                <p className="text-sm text-gray-600">{getScoreRating(payload[0].value)}</p>
+            </div>
+        );
+    }
+    return null;
+};
+
 const OverviewTab = ({ reportData }) => {
     // Create data for category chart
     const getCategoryData = () => {
@@ -29,6 +42,9 @@ const OverviewTab = ({ reportData }) => {
             }
         ];
     };
+
+    // Determine if there are any critical issues
+    const hasCriticalIssues = (reportData.itemsRequired?.length || 0) > 0;
 
     return (
         <div className="bg-white rounded-lg shadow p-6 mb-6">
@@ -65,9 +81,17 @@ const OverviewTab = ({ reportData }) => {
                                 </div>
                             </div>
                         </div>
-                        <p className="mt-4 text-gray-700">
-                            {getHealthAssessment(reportData.overallScore)}
-                        </p>
+                        <div className="mt-4">
+                            <p className="text-gray-700">
+                                {getHealthAssessment(reportData.overallScore)}
+                            </p>
+
+                            {hasCriticalIssues && (
+                                <div className="mt-2 p-2 bg-red-50 border border-red-100 rounded text-sm text-red-700">
+                                    <span className="font-medium">Attention needed:</span> {reportData.itemsRequired.length} critical issues require immediate action.
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -83,7 +107,7 @@ const OverviewTab = ({ reportData }) => {
                                 <CartesianGrid strokeDasharray="3 3" />
                                 <XAxis type="number" domain={[0, 100]} />
                                 <YAxis type="category" dataKey="name" width={100} />
-                                <Tooltip formatter={(value) => [`${value}%`, 'Score']} />
+                                <Tooltip content={<CustomTooltip />} />
                                 <Bar dataKey="score" name="Score">
                                     {getCategoryData().map((entry, index) => (
                                         <Cell key={`cell-${index}`} fill={getScoreColor(entry.score)} />
@@ -99,22 +123,41 @@ const OverviewTab = ({ reportData }) => {
             <div className="bg-white rounded-lg overflow-hidden shadow mb-6">
                 <div className="p-6">
                     <h3 className="text-xl font-semibold mb-4">Issues Summary</h3>
-                    <ResponsiveContainer width="100%" height={300}>
-                        <BarChart
-                            data={getIssuesData()}
-                            margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                        >
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="name" />
-                            <YAxis />
-                            <Tooltip />
-                            <Legend />
-                            <Bar dataKey="Required" name="Required Changes" fill="#EF4444" />
-                            <Bar dataKey="Recommended" name="Recommended Changes" fill="#F59E0B" />
-                            <Bar dataKey="Advisory" name="Advisory Actions" fill="#3B82F6" />
-                        </BarChart>
-                    </ResponsiveContainer>
+
+                    {getIssuesData()[0].Required === 0 &&
+                    getIssuesData()[0].Recommended === 0 &&
+                    getIssuesData()[0].Advisory === 0 ? (
+                        <div className="bg-green-50 p-4 rounded-lg border border-green-100 text-green-800">
+                            <p className="font-medium">No issues detected</p>
+                            <p className="mt-1 text-sm">Your cluster appears to be following all best practices.</p>
+                        </div>
+                    ) : (
+                        <ResponsiveContainer width="100%" height={300}>
+                            <BarChart
+                                data={getIssuesData()}
+                                margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                            >
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="name" />
+                                <YAxis />
+                                <Tooltip />
+                                <Legend />
+                                <Bar dataKey="Required" name="Required Changes" fill="#EF4444" />
+                                <Bar dataKey="Recommended" name="Recommended Changes" fill="#F59E0B" />
+                                <Bar dataKey="Advisory" name="Advisory Actions" fill="#3B82F6" />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    )}
                 </div>
+            </div>
+
+            {/* Recent reports info */}
+            <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                <h3 className="text-lg font-semibold text-blue-800 mb-2">Report Information</h3>
+                <p className="text-sm text-blue-700">
+                    This report was analyzed on <span className="font-medium">{new Date().toLocaleDateString()}</span>.
+                    View the "Remediation Actions" tab for detailed recommendations.
+                </p>
             </div>
         </div>
     );

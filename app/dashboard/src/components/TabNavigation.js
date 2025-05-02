@@ -5,30 +5,30 @@ const TabNavigation = ({ activeTab, setActiveTab }) => {
         <div className="border-b border-gray-200 mb-6">
             <div className="flex -mb-px">
                 <button
-                    className={`py-4 px-6 font-medium text-sm ${
+                    className={`py-4 px-6 font-medium text-sm border-b-2 transition-all duration-300 ease-in-out ${
                         activeTab === 'overview'
-                            ? 'border-b-2 border-indigo-500 text-indigo-600'
-                            : 'text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                            ? 'border-indigo-500 text-indigo-600'
+                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                     }`}
                     onClick={() => setActiveTab('overview')}
                 >
                     Overview
                 </button>
                 <button
-                    className={`py-4 px-6 font-medium text-sm ${
+                    className={`py-4 px-6 font-medium text-sm border-b-2 transition-all duration-300 ease-in-out ${
                         activeTab === 'executive'
-                            ? 'border-b-2 border-indigo-500 text-indigo-600'
-                            : 'text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                            ? 'border-indigo-500 text-indigo-600'
+                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                     }`}
                     onClick={() => setActiveTab('executive')}
                 >
                     Executive Summary
                 </button>
                 <button
-                    className={`py-4 px-6 font-medium text-sm ${
+                    className={`py-4 px-6 font-medium text-sm border-b-2 transition-all duration-300 ease-in-out ${
                         activeTab === 'remediation'
-                            ? 'border-b-2 border-indigo-500 text-indigo-600'
-                            : 'text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                            ? 'border-indigo-500 text-indigo-600'
+                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                     }`}
                     onClick={() => setActiveTab('remediation')}
                 >
