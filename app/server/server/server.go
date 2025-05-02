@@ -1,7 +1,8 @@
-// app/server/server/server.go
+// app/server/server/server.go - Updated with proper health endpoints and graceful shutdown
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ayaseen/openshift-health-dashboard/app/server/utils"
@@ -24,8 +26,10 @@ type Config struct {
 
 // Server represents the HTTP server
 type Server struct {
-	config  Config
-	handler http.Handler
+	config     Config
+	handler    http.Handler
+	httpServer *http.Server
+	isReady    atomic.Bool
 }
 
 // NewServer creates a new server instance
@@ -35,10 +39,33 @@ func NewServer(config Config) *Server {
 		config: config,
 	}
 
+	// Set the server as not ready initially
+	s.isReady.Store(false)
+
 	// Set up the HTTP handler
 	s.setupHandler()
 
 	return s
+}
+
+// Initialize performs any necessary initialization before the server starts
+func (s *Server) Initialize() error {
+	// Check if static directory exists
+	if _, err := os.Stat(s.config.StaticDir); os.IsNotExist(err) {
+		return fmt.Errorf("static directory does not exist: %s", s.config.StaticDir)
+	}
+
+	// Check if index.html exists in static directory
+	indexPath := filepath.Join(s.config.StaticDir, "index.html")
+	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
+		return fmt.Errorf("index.html not found in static directory: %s", indexPath)
+	}
+
+	log.Printf("Initialization complete, server is ready")
+
+	// Mark the server as ready
+	s.isReady.Store(true)
+	return nil
 }
 
 // setupHandler configures the HTTP handler
@@ -46,14 +73,36 @@ func (s *Server) setupHandler() {
 	// Create a custom handler with logging
 	mux := http.NewServeMux()
 
-	// Add API endpoint for report upload and parsing
+	// Add API endpoints
 	mux.HandleFunc("/api/parse-report", s.HandleReportUpload)
+
+	// Health check endpoint for liveness probe
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok"}`))
+	})
+
+	// Readiness probe endpoint
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if s.isReady.Load() {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"status":"ready"}`))
+		} else {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte(`{"status":"not ready"}`))
+		}
+	})
 
 	// Set up static file serving
 	staticHandler := http.FileServer(http.Dir(s.config.StaticDir))
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Log the request
-		log.Printf("%s - %s %s", r.RemoteAddr, r.Method, r.URL.Path)
+		if s.config.DebugMode {
+			log.Printf("%s - %s %s", r.RemoteAddr, r.Method, r.URL.Path)
+		}
 
 		// Add headers to prevent caching
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
@@ -73,7 +122,9 @@ func (s *Server) setupHandler() {
 		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
 			indexPath := filepath.Join(s.config.StaticDir, "index.html")
 			if _, err := os.Stat(indexPath); err == nil {
-				log.Println("Serving index.html for root path")
+				if s.config.DebugMode {
+					log.Println("Serving index.html for root path")
+				}
 				http.ServeFile(w, r, indexPath)
 				return
 			}
@@ -83,13 +134,17 @@ func (s *Server) setupHandler() {
 		if os.IsNotExist(err) && r.URL.Path != "/" {
 			// If it's a file request with extension, return 404
 			if filepath.Ext(r.URL.Path) != "" {
-				log.Printf("File not found: %s, returning 404", path)
+				if s.config.DebugMode {
+					log.Printf("File not found: %s, returning 404", path)
+				}
 				http.NotFound(w, r)
 				return
 			}
 
 			// Otherwise serve index.html for SPA routing
-			log.Printf("Path not found: %s, serving index.html for SPA routing", path)
+			if s.config.DebugMode {
+				log.Printf("Path not found: %s, serving index.html for SPA routing", path)
+			}
 			http.ServeFile(w, r, filepath.Join(s.config.StaticDir, "index.html"))
 			return
 		}
@@ -183,7 +238,7 @@ func (s *Server) HandleReportUpload(w http.ResponseWriter, r *http.Request) {
 // Start starts the HTTP server
 func (s *Server) Start() error {
 	// Create a custom server with timeouts
-	server := &http.Server{
+	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf(":%s", s.config.Port),
 		Handler:      s.handler,
 		ReadTimeout:  30 * time.Second,
@@ -192,5 +247,13 @@ func (s *Server) Start() error {
 	}
 
 	// Start the server
-	return server.ListenAndServe()
+	return s.httpServer.ListenAndServe()
+}
+
+// Shutdown gracefully shuts down the server
+func (s *Server) Shutdown(ctx context.Context) error {
+	if s.httpServer != nil {
+		return s.httpServer.Shutdown(ctx)
+	}
+	return nil
 }
