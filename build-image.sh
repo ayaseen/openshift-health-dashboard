@@ -10,7 +10,7 @@ REACT_VERSION="18.2.0"
 # Define image variables
 REGISTRY="quay-quay-registry.apps.ocp.rhlab.dev"
 NAMESPACE="ayaseen"
-IMAGE_NAME="operator"
+IMAGE_NAME="dashboard"
 TAG="v0.1.0"
 IMAGE="${REGISTRY}/${NAMESPACE}/${IMAGE_NAME}:${TAG}"
 GO_VERSION="1.24.2" # Updated Go version
