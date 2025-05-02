@@ -1,5 +1,5 @@
 // Create a proper go.mod file that aligns with the import paths
-module github.com/ayaseen/openshift-health-operator
+module github.com/ayaseen/openshift-health-dashboard
 
 go 1.24.2
 

@@ -7,7 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"dashboard/types"
+	"github.com/ayaseen/openshift-health-dashboard/app/server/server"
+	"github.com/ayaseen/openshift-health-dashboard/app/server/types"
+	"github.com/ayaseen/openshift-health-dashboard/app/server/utils"
 )
 
 // ParseAsciiDocExecutiveSummary parses an AsciiDoc file and extracts the executive summary

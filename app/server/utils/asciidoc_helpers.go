@@ -7,7 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"dashboard/types"
+	"github.com/ayaseen/openshift-health-dashboard/app/server/server"
+	"github.com/ayaseen/openshift-health-dashboard/app/server/types"
+	"github.com/ayaseen/openshift-health-dashboard/app/server/utils"
 )
 
 // IsValidAsciiDocFile checks if a filename has a valid AsciiDoc extension
