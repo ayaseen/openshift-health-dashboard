@@ -40,41 +40,37 @@ RUN mkdir -p /tmp/health-reports /tmp/health-checks /web/static && \
 # Configure working directory
 WORKDIR /opt/app-root/src
 
-# Copy the binaries
+# Copy the binary
 COPY bin/manager /usr/local/bin/manager
-COPY bin/serve /usr/local/bin/serve
 
 # Copy web assets for dashboard
-COPY web/static/ /web/static/
+COPY app/web/static/ /web/static/
 
 # Set permissions for OpenShift random UID compatibility
 RUN chmod -R g+rwX /web/static && \
-    chmod +x /usr/local/bin/manager /usr/local/bin/serve && \
-    chgrp -R 0 /usr/local/bin/manager /usr/local/bin/serve && \
-    chmod -R g=u /usr/local/bin/manager /usr/local/bin/serve
+    chmod +x /usr/local/bin/manager && \
+    chgrp -R 0 /usr/local/bin/manager && \
+    chmod -R g=u /usr/local/bin/manager
 
 # Create startup script with proper permissions
 RUN echo '#!/bin/bash' > /usr/local/bin/start.sh && \
-    echo 'echo "Starting static file server on port $STATIC_PORT"' >> /usr/local/bin/start.sh && \
-    echo '/usr/local/bin/serve &' >> /usr/local/bin/start.sh && \
-    echo 'echo "Starting manager service on port 8082"' >> /usr/local/bin/start.sh && \
+    echo 'echo "Starting OpenShift Health Dashboard on port $PORT"' >> /usr/local/bin/start.sh && \
     echo 'exec /usr/local/bin/manager' >> /usr/local/bin/start.sh && \
     chmod +x /usr/local/bin/start.sh && \
     chgrp 0 /usr/local/bin/start.sh && \
     chmod g=u /usr/local/bin/start.sh
 
-# Expose ports
+# Expose port
 EXPOSE 8082
-EXPOSE 8084
 
-# Set environment variables
+# Set environment variables for the dashboard
 ENV STATIC_DIR=/web/static \
-    STATIC_PORT=8084 \
-    API_TARGET=http://localhost:8082
+    PORT=8080 \
+    DEBUG=false
 
 # Switch to non-root user
 USER ${USER_ID}
 
-# Use the startup script
+# Start the server
 ENTRYPOINT ["/usr/local/bin/start.sh"]
 

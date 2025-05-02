@@ -91,7 +91,7 @@ echo "=== Dashboard Build Complete ==="
 
 
 
-echo "=== Building OpenShift Health Operator Image ==="
+echo "=== Building OpenShift Health Dashboard Image ==="
 echo "Target image: ${IMAGE}"
 
 # Detect architecture
@@ -100,9 +100,9 @@ echo "Host architecture: ${ARCH}"
 
 
 # Ensure the static directory has the dashboard file
-if [ ! -f "web/static/index.html" ]; then
-    echo "ERROR: The dashboard file (web/static/index.html) is missing."
-    echo "Please create the web/static/index.html file before running this script."
+if [ ! -f "app/web/static/index.html" ]; then
+    echo "ERROR: The dashboard file (app/web/static/index.html) is missing."
+    echo "Please create the app/web/static/index.html file before running this script."
     exit 1
 fi
 
@@ -182,7 +182,7 @@ RUN echo '#!/bin/bash' > /usr/local/bin/start.sh && \
     chmod g=u /usr/local/bin/start.sh
 
 # Expose port
-EXPOSE 8080
+EXPOSE 8082
 
 # Set environment variables for the dashboard
 ENV STATIC_DIR=/web/static \
