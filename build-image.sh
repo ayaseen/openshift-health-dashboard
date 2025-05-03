@@ -27,7 +27,9 @@ rm -rf app/web/static/*
 cd app/dashboard
 
 # Install fresh dependencies
+
 echo "Installing dependencies..."
+npm install --save lucide-react
 npm install --no-audit --no-fund
 
 # Force rebuild of CSS

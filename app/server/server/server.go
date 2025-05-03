@@ -1,4 +1,4 @@
-// app/server/server/server.go - Updated with proper health endpoints and graceful shutdown
+// app/server/server/server.go - Updated with improved file processing logic
 package server
 
 import (
@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ayaseen/openshift-health-dashboard/app/server/types"
 	"github.com/ayaseen/openshift-health-dashboard/app/server/utils"
 )
 
@@ -215,6 +216,10 @@ func (s *Server) HandleReportUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Ensure file is flushed and closed before parsing
+	tempFile.Sync()
+	tempFile.Close()
+
 	// Parse the report
 	summary, err := utils.ParseAsciiDocExecutiveSummary(tempFile.Name())
 	if err != nil {
@@ -222,6 +227,9 @@ func (s *Server) HandleReportUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to parse report", http.StatusInternalServerError)
 		return
 	}
+
+	// Validate and fix the summary data
+	validateSummaryData(summary)
 
 	// Return the summary as JSON
 	if err := json.NewEncoder(w).Encode(summary); err != nil {
@@ -232,6 +240,64 @@ func (s *Server) HandleReportUpload(w http.ResponseWriter, r *http.Request) {
 
 	if s.config.DebugMode {
 		log.Printf("Successfully processed report: %s", header.Filename)
+		log.Printf("Found %d required changes, %d recommended changes, %d advisory items",
+			len(summary.ItemsRequired), len(summary.ItemsRecommended), len(summary.ItemsAdvisory))
+	}
+}
+
+// validateSummaryData ensures all summary data is valid and provides fallbacks where needed
+func validateSummaryData(summary *types.ReportSummary) {
+	// Ensure overall score is within range
+	if summary.OverallScore < 0 {
+		summary.OverallScore = 0
+	} else if summary.OverallScore > 100 {
+		summary.OverallScore = 100
+	}
+
+	// Ensure all category scores are within range and have fallbacks
+	validateCategoryScore(&summary.ScoreInfra)
+	validateCategoryScore(&summary.ScoreGovernance)
+	validateCategoryScore(&summary.ScoreCompliance)
+	validateCategoryScore(&summary.ScoreMonitoring)
+	validateCategoryScore(&summary.ScoreBuildSecurity)
+
+	// Ensure lists are initialized
+	if summary.ItemsRequired == nil {
+		summary.ItemsRequired = []string{}
+	}
+	if summary.ItemsRecommended == nil {
+		summary.ItemsRecommended = []string{}
+	}
+	if summary.ItemsAdvisory == nil {
+		summary.ItemsAdvisory = []string{}
+	}
+
+	// Ensure descriptions are set
+	if summary.InfraDescription == "" {
+		summary.InfraDescription = utils.GenerateDescription("Infrastructure Setup", summary.ScoreInfra)
+	}
+	if summary.GovernanceDescription == "" {
+		summary.GovernanceDescription = utils.GenerateDescription("Policy Governance", summary.ScoreGovernance)
+	}
+	if summary.ComplianceDescription == "" {
+		summary.ComplianceDescription = utils.GenerateDescription("Compliance Benchmarking", summary.ScoreCompliance)
+	}
+	if summary.MonitoringDescription == "" {
+		summary.MonitoringDescription = utils.GenerateDescription("Central Monitoring", summary.ScoreMonitoring)
+	}
+	if summary.BuildSecurityDescription == "" {
+		summary.BuildSecurityDescription = utils.GenerateDescription("Build/Deploy Security", summary.ScoreBuildSecurity)
+	}
+}
+
+// validateCategoryScore ensures a category score is within valid range with a fallback
+func validateCategoryScore(score *int) {
+	if *score < 0 {
+		*score = 0
+	} else if *score > 100 {
+		*score = 100
+	} else if *score == 0 {
+		*score = 75 // Default fallback if not found
 	}
 }
 
