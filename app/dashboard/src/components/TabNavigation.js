@@ -2,33 +2,33 @@ import React from 'react';
 
 const TabNavigation = ({ activeTab, setActiveTab }) => {
     return (
-        <div className="border-b border-gray-200 mb-6">
-            <div className="flex -mb-px">
+        <div className="bg-white rounded-lg shadow-sm mb-6 p-1">
+            <div className="flex">
                 <button
-                    className={`py-4 px-6 font-medium text-sm border-b-2 transition-all duration-300 ease-in-out ${
+                    className={`py-3 px-6 font-medium text-sm rounded-md transition-all duration-300 ease-in-out ${
                         activeTab === 'overview'
-                            ? 'border-indigo-500 text-indigo-600'
-                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                            ? 'bg-indigo-100 text-indigo-700 font-semibold shadow-sm'
+                            : 'text-gray-600 hover:bg-gray-50'
                     }`}
                     onClick={() => setActiveTab('overview')}
                 >
                     Overview
                 </button>
                 <button
-                    className={`py-4 px-6 font-medium text-sm border-b-2 transition-all duration-300 ease-in-out ${
+                    className={`py-3 px-6 font-medium text-sm rounded-md transition-all duration-300 ease-in-out ${
                         activeTab === 'executive'
-                            ? 'border-indigo-500 text-indigo-600'
-                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                            ? 'bg-indigo-100 text-indigo-700 font-semibold shadow-sm'
+                            : 'text-gray-600 hover:bg-gray-50'
                     }`}
                     onClick={() => setActiveTab('executive')}
                 >
                     Executive Summary
                 </button>
                 <button
-                    className={`py-4 px-6 font-medium text-sm border-b-2 transition-all duration-300 ease-in-out ${
+                    className={`py-3 px-6 font-medium text-sm rounded-md transition-all duration-300 ease-in-out ${
                         activeTab === 'remediation'
-                            ? 'border-indigo-500 text-indigo-600'
-                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                            ? 'bg-indigo-100 text-indigo-700 font-semibold shadow-sm'
+                            : 'text-gray-600 hover:bg-gray-50'
                     }`}
                     onClick={() => setActiveTab('remediation')}
                 >

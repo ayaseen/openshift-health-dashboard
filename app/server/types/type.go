@@ -19,6 +19,7 @@ type ReportSummary struct {
 	ItemsRequired            []string `json:"itemsRequired"`
 	ItemsRecommended         []string `json:"itemsRecommended"`
 	ItemsAdvisory            []string `json:"itemsAdvisory"`
+	NoChangeCount            int      `json:"noChangeCount"`
 }
 
 // Category represents a category in the health check report

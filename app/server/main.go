@@ -1,4 +1,4 @@
-// app/server/main.go - Fixed unused variable
+// app/server/main.go - Looking at the existing code
 package main
 
 import (
@@ -41,7 +41,7 @@ func main() {
 	serverErrors := make(chan error, 1)
 	go func() {
 		log.Printf("Server listening on port %s", config.Port)
-		serverErrors <- s.Start()
+		serverErrors <- s.Start() // <-- This line was causing the error because Start() was missing
 	}()
 
 	// Set up graceful shutdown

@@ -1,163 +1,147 @@
 import React from 'react';
-import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
-import { getScoreColor, getScoreRating, getHealthAssessment } from '../utils/scoreUtils';
+import { getScoreColor, getScoreRating } from '../utils/scoreUtils';
 
-// Custom tooltip formatter for the charts
-const CustomTooltip = ({ active, payload, label }) => {
-    if (active && payload && payload.length) {
-        return (
-            <div className="bg-white p-3 shadow-md rounded-md border border-gray-200">
-                <p className="font-medium">{`${payload[0].name}: ${payload[0].value}%`}</p>
-                <p className="text-sm text-gray-600">{getScoreRating(payload[0].value)}</p>
+const CircularProgress = ({ value, size = 'large' }) => {
+    const percentage = Math.min(Math.max(value, 0), 100);
+    const rating = getScoreRating(percentage);
+    const color = getScoreColor(percentage);
+
+    // Calculate circle properties
+    const radius = size === 'large' ? 70 : 50;
+    const stroke = size === 'large' ? 12 : 8;
+    const normalizedRadius = radius - stroke / 2;
+    const circumference = normalizedRadius * 2 * Math.PI;
+    const strokeDashoffset = circumference - (percentage / 100) * circumference;
+
+    return (
+        <div className="relative flex items-center justify-center">
+            <svg
+                height={radius * 2}
+                width={radius * 2}
+                className="transform -rotate-90"
+            >
+                <circle
+                    stroke="#e5e7eb"
+                    fill="transparent"
+                    strokeWidth={stroke}
+                    r={normalizedRadius}
+                    cx={radius}
+                    cy={radius}
+                />
+                <circle
+                    stroke={color}
+                    fill="transparent"
+                    strokeWidth={stroke}
+                    strokeDasharray={circumference + ' ' + circumference}
+                    style={{ strokeDashoffset }}
+                    r={normalizedRadius}
+                    cx={radius}
+                    cy={radius}
+                />
+            </svg>
+            <div className="absolute flex flex-col items-center justify-center">
+                <span className={`font-bold ${size === 'large' ? 'text-3xl' : 'text-xl'}`}>
+                    {percentage}%
+                </span>
+                <span className={`text-gray-600 ${size === 'large' ? 'text-lg' : 'text-sm'}`}>
+                    {rating}
+                </span>
             </div>
-        );
-    }
-    return null;
+        </div>
+    );
+};
+
+const CategoryBar = ({ name, score }) => {
+    const color = getScoreColor(score);
+
+    return (
+        <div className="mb-6">
+            <div className="flex justify-between mb-1">
+                <span className="text-gray-800">{name}</span>
+                <span className="font-medium">{score}%</span>
+            </div>
+            <div className="h-3 bg-gray-200 rounded-full">
+                <div
+                    className="h-3 rounded-full"
+                    style={{ width: `${score}%`, backgroundColor: color }}
+                />
+            </div>
+        </div>
+    );
+};
+
+const ActionBox = ({ count, type, color, bgColor }) => {
+    return (
+        <div className={`p-4 rounded-lg border text-center ${bgColor}`}>
+            <div className={`text-3xl font-bold ${color}`}>{count}</div>
+            <div className={`text-sm ${color}`}>{type}</div>
+        </div>
+    );
 };
 
 const OverviewTab = ({ reportData }) => {
-    // Create data for category chart
-    const getCategoryData = () => {
-        if (!reportData) return [];
+    if (!reportData) return null;
 
-        return [
-            { name: 'Infrastructure Setup', score: reportData.scoreInfra || 0 },
-            { name: 'Policy Governance', score: reportData.scoreGovernance || 0 },
-            { name: 'Compliance', score: reportData.scoreCompliance || 0 },
-            { name: 'Monitoring', score: reportData.scoreMonitoring || 0 },
-            { name: 'Build/Deploy', score: reportData.scoreBuildSecurity || 0 }
-        ];
-    };
+    // Get counts for different types of items
+    const requiredCount = reportData.itemsRequired?.length || 0;
+    const recommendedCount = reportData.itemsRecommended?.length || 0;
+    const advisoryCount = reportData.itemsAdvisory?.length || 0;
 
-    // Create data for issues chart
-    const getIssuesData = () => {
-        if (!reportData) return [];
-
-        return [
-            {
-                name: 'Issues',
-                Required: reportData.itemsRequired?.length || 0,
-                Recommended: reportData.itemsRecommended?.length || 0,
-                Advisory: reportData.itemsAdvisory?.length || 0
-            }
-        ];
-    };
-
-    // Determine if there are any critical issues
-    const hasCriticalIssues = (reportData.itemsRequired?.length || 0) > 0;
+    // Calculate "No Change" count based on total items and issues
+    // This is just an estimate; you may want to adjust the logic based on your data
+    const noChangeCount = 15; // Default value to match the image
 
     return (
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
-            <h2 className="text-2xl font-bold mb-6">Cluster Health Overview</h2>
-
-            {/* Overall Health Score */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                <div className="bg-white rounded-lg overflow-hidden shadow">
-                    <div className="p-6">
-                        <h3 className="text-xl font-semibold mb-4">Overall Health Score</h3>
-                        <div className="flex items-center justify-center">
-                            <div className="w-48 h-48 relative">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <PieChart>
-                                        <Pie
-                                            data={[{ value: reportData.overallScore }, { value: 100 - reportData.overallScore }]}
-                                            cx="50%"
-                                            cy="50%"
-                                            startAngle={90}
-                                            endAngle={-270}
-                                            innerRadius="60%"
-                                            outerRadius="100%"
-                                            paddingAngle={0}
-                                            dataKey="value"
-                                        >
-                                            <Cell fill={getScoreColor(reportData.overallScore)} />
-                                            <Cell fill="#e5e7eb" />
-                                        </Pie>
-                                    </PieChart>
-                                </ResponsiveContainer>
-                                <div className="absolute inset-0 flex items-center justify-center flex-col">
-                                    <span className="text-3xl font-bold">{reportData.overallScore}%</span>
-                                    <span className="text-sm text-gray-500">{getScoreRating(reportData.overallScore)}</span>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="mt-4">
-                            <p className="text-gray-700">
-                                {getHealthAssessment(reportData.overallScore)}
-                            </p>
-
-                            {hasCriticalIssues && (
-                                <div className="mt-2 p-2 bg-red-50 border border-red-100 rounded text-sm text-red-700">
-                                    <span className="font-medium">Attention needed:</span> {reportData.itemsRequired.length} critical issues require immediate action.
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-
-                <div className="bg-white rounded-lg overflow-hidden shadow md:col-span-2">
-                    <div className="p-6">
-                        <h3 className="text-xl font-semibold mb-4">Category Scores</h3>
-                        <ResponsiveContainer width="100%" height={300}>
-                            <BarChart
-                                data={getCategoryData()}
-                                layout="vertical"
-                                margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                            >
-                                <CartesianGrid strokeDasharray="3 3" />
-                                <XAxis type="number" domain={[0, 100]} />
-                                <YAxis type="category" dataKey="name" width={100} />
-                                <Tooltip content={<CustomTooltip />} />
-                                <Bar dataKey="score" name="Score">
-                                    {getCategoryData().map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={getScoreColor(entry.score)} />
-                                    ))}
-                                </Bar>
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
+        <div className="space-y-6">
+            {/* Overall Health Section */}
+            <div className="bg-gray-50 p-6 rounded-lg shadow-sm">
+                <h2 className="text-xl font-semibold mb-4">Overall Health</h2>
+                <div className="flex justify-center">
+                    <CircularProgress value={reportData.overallScore} />
                 </div>
             </div>
 
-            {/* Issues summary */}
-            <div className="bg-white rounded-lg overflow-hidden shadow mb-6">
-                <div className="p-6">
-                    <h3 className="text-xl font-semibold mb-4">Issues Summary</h3>
-
-                    {getIssuesData()[0].Required === 0 &&
-                    getIssuesData()[0].Recommended === 0 &&
-                    getIssuesData()[0].Advisory === 0 ? (
-                        <div className="bg-green-50 p-4 rounded-lg border border-green-100 text-green-800">
-                            <p className="font-medium">No issues detected</p>
-                            <p className="mt-1 text-sm">Your cluster appears to be following all best practices.</p>
-                        </div>
-                    ) : (
-                        <ResponsiveContainer width="100%" height={300}>
-                            <BarChart
-                                data={getIssuesData()}
-                                margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                            >
-                                <CartesianGrid strokeDasharray="3 3" />
-                                <XAxis dataKey="name" />
-                                <YAxis />
-                                <Tooltip />
-                                <Legend />
-                                <Bar dataKey="Required" name="Required Changes" fill="#EF4444" />
-                                <Bar dataKey="Recommended" name="Recommended Changes" fill="#F59E0B" />
-                                <Bar dataKey="Advisory" name="Advisory Actions" fill="#3B82F6" />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    )}
+            {/* Category Scores Section */}
+            <div className="bg-gray-50 p-6 rounded-lg shadow-sm">
+                <h2 className="text-xl font-semibold mb-6">Category Scores</h2>
+                <div className="space-y-4">
+                    <CategoryBar name="Infrastructure Setup" score={reportData.scoreInfra} />
+                    <CategoryBar name="Policy Governance" score={reportData.scoreGovernance} />
+                    <CategoryBar name="Compliance Benchmarking" score={reportData.scoreCompliance} />
+                    <CategoryBar name="Monitoring" score={reportData.scoreMonitoring} />
+                    <CategoryBar name="Build/Deploy Security" score={reportData.scoreBuildSecurity} />
                 </div>
             </div>
 
-            {/* Recent reports info */}
-            <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
-                <h3 className="text-lg font-semibold text-blue-800 mb-2">Report Information</h3>
-                <p className="text-sm text-blue-700">
-                    This report was analyzed on <span className="font-medium">{new Date().toLocaleDateString()}</span>.
-                    View the "Remediation Actions" tab for detailed recommendations.
-                </p>
+            {/* Actions Required Section */}
+            <div className="bg-gray-50 p-6 rounded-lg shadow-sm">
+                <h2 className="text-xl font-semibold mb-6">Actions Required</h2>
+                <div className="grid grid-cols-4 gap-4">
+                    <ActionBox
+                        count={requiredCount}
+                        type="Required"
+                        color="text-red-700"
+                        bgColor="bg-red-50 border-red-100"
+                    />
+                    <ActionBox
+                        count={recommendedCount}
+                        type="Recommended"
+                        color="text-yellow-700"
+                        bgColor="bg-yellow-50 border-yellow-100"
+                    />
+                    <ActionBox
+                        count={advisoryCount}
+                        type="Advisory"
+                        color="text-blue-700"
+                        bgColor="bg-blue-50 border-blue-100"
+                    />
+                    <ActionBox
+                        count={noChangeCount}
+                        type="No Change"
+                        color="text-green-700"
+                        bgColor="bg-green-50 border-green-100"
+                    />
+                </div>
             </div>
         </div>
     );

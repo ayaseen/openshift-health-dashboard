@@ -1,4 +1,4 @@
-// app/server/server/server.go - Updated with improved file processing logic
+// app/server/server/server.go
 package server
 
 import (
@@ -160,12 +160,21 @@ func (s *Server) setupHandler() {
 
 // HandleReportUpload processes uploaded AsciiDoc reports
 func (s *Server) HandleReportUpload(w http.ResponseWriter, r *http.Request) {
-	// Set content type header
+	// Set content type header and CORS headers
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	// Handle preflight OPTIONS request
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 
 	// Check if the request method is POST
 	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -177,7 +186,7 @@ func (s *Server) HandleReportUpload(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseMultipartForm(10 << 20)
 	if err != nil {
 		log.Printf("Error parsing form: %v", err)
-		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		http.Error(w, `{"error":"Failed to parse form"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -185,7 +194,7 @@ func (s *Server) HandleReportUpload(w http.ResponseWriter, r *http.Request) {
 	file, header, err := r.FormFile("report")
 	if err != nil {
 		log.Printf("Error getting file: %v", err)
-		http.Error(w, "Failed to get file", http.StatusBadRequest)
+		http.Error(w, `{"error":"Failed to get file"}`, http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
@@ -194,7 +203,7 @@ func (s *Server) HandleReportUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Check file extension
 	if !utils.IsValidAsciiDocFile(header.Filename) {
-		http.Error(w, "Invalid file type. Only .adoc or .asciidoc files are allowed", http.StatusBadRequest)
+		http.Error(w, `{"error":"Invalid file type. Only .adoc or .asciidoc files are allowed"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -202,7 +211,7 @@ func (s *Server) HandleReportUpload(w http.ResponseWriter, r *http.Request) {
 	tempFile, err := os.CreateTemp("", "report-*.adoc")
 	if err != nil {
 		log.Printf("Error creating temp file: %v", err)
-		http.Error(w, "Failed to process file", http.StatusInternalServerError)
+		http.Error(w, `{"error":"Failed to process file"}`, http.StatusInternalServerError)
 		return
 	}
 	defer os.Remove(tempFile.Name())
@@ -212,7 +221,7 @@ func (s *Server) HandleReportUpload(w http.ResponseWriter, r *http.Request) {
 	_, err = io.Copy(tempFile, file)
 	if err != nil {
 		log.Printf("Error copying file: %v", err)
-		http.Error(w, "Failed to process file", http.StatusInternalServerError)
+		http.Error(w, `{"error":"Failed to process file"}`, http.StatusInternalServerError)
 		return
 	}
 
@@ -224,7 +233,7 @@ func (s *Server) HandleReportUpload(w http.ResponseWriter, r *http.Request) {
 	summary, err := utils.ParseAsciiDocExecutiveSummary(tempFile.Name())
 	if err != nil {
 		log.Printf("Error parsing report: %v", err)
-		http.Error(w, "Failed to parse report", http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf(`{"error":"Failed to parse report: %s"}`, err), http.StatusInternalServerError)
 		return
 	}
 
@@ -232,9 +241,13 @@ func (s *Server) HandleReportUpload(w http.ResponseWriter, r *http.Request) {
 	validateSummaryData(summary)
 
 	// Return the summary as JSON
-	if err := json.NewEncoder(w).Encode(summary); err != nil {
+	encoder := json.NewEncoder(w)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+
+	if err := encoder.Encode(summary); err != nil {
 		log.Printf("Error encoding JSON: %v", err)
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		http.Error(w, `{"error":"Failed to encode response"}`, http.StatusInternalServerError)
 		return
 	}
 
@@ -272,7 +285,7 @@ func validateSummaryData(summary *types.ReportSummary) {
 		summary.ItemsAdvisory = []string{}
 	}
 
-	// Ensure descriptions are set
+	// Ensure descriptions are set and properly formatted
 	if summary.InfraDescription == "" {
 		summary.InfraDescription = utils.GenerateDescription("Infrastructure Setup", summary.ScoreInfra)
 	}
@@ -287,6 +300,14 @@ func validateSummaryData(summary *types.ReportSummary) {
 	}
 	if summary.BuildSecurityDescription == "" {
 		summary.BuildSecurityDescription = utils.GenerateDescription("Build/Deploy Security", summary.ScoreBuildSecurity)
+	}
+
+	// Set default cluster and customer names if empty
+	if summary.ClusterName == "" {
+		summary.ClusterName = "OpenShift Cluster"
+	}
+	if summary.CustomerName == "" {
+		summary.CustomerName = "Your Company"
 	}
 }
 
@@ -312,12 +333,15 @@ func (s *Server) Start() error {
 		IdleTimeout:  120 * time.Second,
 	}
 
+	log.Printf("Server starting on port %s", s.config.Port)
+
 	// Start the server
 	return s.httpServer.ListenAndServe()
 }
 
 // Shutdown gracefully shuts down the server
 func (s *Server) Shutdown(ctx context.Context) error {
+	log.Println("Shutting down server...")
 	if s.httpServer != nil {
 		return s.httpServer.Shutdown(ctx)
 	}
