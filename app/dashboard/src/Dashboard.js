@@ -3,7 +3,7 @@ import { getScoreColor, getScoreRating } from './utils/scoreUtils';
 
 // Circular progress component for overall health
 const CircularProgress = ({ value }) => {
-    const percentage = value;
+    const percentage = value || 0;
     const radius = 70;
     const stroke = 14;
     const normalizedRadius = radius - stroke / 2;
@@ -45,15 +45,16 @@ const CircularProgress = ({ value }) => {
 
 // Progress bar component for category scores
 const ProgressBar = ({ name, score }) => {
-    const color = getScoreColor(score);
+    const safeScore = score || 0;
+    const color = getScoreColor(safeScore);
     return (
         <div className="mb-6">
             <div className="flex justify-between mb-2">
                 <span className="text-sm font-medium text-gray-700">{name}</span>
-                <span className="text-sm font-medium text-gray-700">{score}%</span>
+                <span className="text-sm font-medium text-gray-700">{safeScore}%</span>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2.5">
-                <div className="h-2.5 rounded-full" style={{ width: `${score}%`, backgroundColor: color }}></div>
+                <div className="h-2.5 rounded-full" style={{ width: `${safeScore}%`, backgroundColor: color }}></div>
             </div>
         </div>
     );
@@ -129,24 +130,7 @@ const Dashboard = () => {
             }
 
             const data = await response.json();
-
-            // Ensure we have all the necessary data with defaults if missing
-            const processedData = {
-                clusterName: data.clusterName || 'OpenShift Cluster',
-                customerName: data.customerName || 'Your Company',
-                overallScore: data.overallScore != null ? parseFloat(data.overallScore).toFixed(1) : 75.0,
-                scoreInfra: data.scoreInfra || 75,
-                scoreGovernance: data.scoreGovernance || 75,
-                scoreCompliance: data.scoreCompliance || 75,
-                scoreMonitoring: data.scoreMonitoring || 75,
-                scoreBuildSecurity: data.scoreBuildSecurity || 75,
-                itemsRequired: Array.isArray(data.itemsRequired) ? data.itemsRequired : [],
-                itemsRecommended: Array.isArray(data.itemsRecommended) ? data.itemsRecommended : [],
-                itemsAdvisory: Array.isArray(data.itemsAdvisory) ? data.itemsAdvisory : [],
-                noChangeCount: data.noChangeCount || 15
-            };
-
-            setReportData(processedData);
+            setReportData(data);
             setUploadSuccess(true);
             setActiveTab('overview');
         } catch (err) {
@@ -282,10 +266,10 @@ const Dashboard = () => {
     const renderOverviewTab = () => {
         if (!reportData) return null;
 
-        const requiredCount = reportData.itemsRequired.length;
-        const recommendedCount = reportData.itemsRecommended.length;
-        const advisoryCount = reportData.itemsAdvisory.length;
-        const noChangeCount = reportData.noChangeCount || 15;
+        const requiredCount = reportData.itemsRequired ? reportData.itemsRequired.length : 0;
+        const recommendedCount = reportData.itemsRecommended ? reportData.itemsRecommended.length : 0;
+        const advisoryCount = reportData.itemsAdvisory ? reportData.itemsAdvisory.length : 0;
+        const noChangeCount = reportData.noChangeCount || 0;
 
         return (
             <div>
@@ -357,15 +341,15 @@ const Dashboard = () => {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <p className="text-sm text-gray-500">Cluster Name</p>
-                                    <p className="font-medium">{reportData.clusterName}</p>
+                                    <p className="font-medium">{reportData.clusterName || 'N/A'}</p>
                                 </div>
                                 <div>
                                     <p className="text-sm text-gray-500">Customer</p>
-                                    <p className="font-medium">{reportData.customerName}</p>
+                                    <p className="font-medium">{reportData.customerName || 'N/A'}</p>
                                 </div>
                                 <div>
                                     <p className="text-sm text-gray-500">Overall Health</p>
-                                    <p className="font-medium">{reportData.overallScore}% ({getScoreRating(reportData.overallScore)})</p>
+                                    <p className="font-medium">{reportData.overallScore || 0}% ({getScoreRating(reportData.overallScore || 0)})</p>
                                 </div>
                             </div>
                         </div>
@@ -374,14 +358,14 @@ const Dashboard = () => {
                     <div>
                         <h3 className="text-lg font-medium mb-2 text-gray-800">Health Assessment</h3>
                         <div className="bg-gray-50 p-4 rounded-lg">
-                            <p>The cluster health assessment resulted in an overall score of <span className="font-semibold">{reportData.overallScore}%</span>, which is considered <span className="font-semibold">{getScoreRating(reportData.overallScore)}</span>.</p>
+                            <p>The cluster health assessment resulted in an overall score of <span className="font-semibold">{reportData.overallScore || 0}%</span>, which is considered <span className="font-semibold">{getScoreRating(reportData.overallScore || 0)}</span>.</p>
 
                             <p className="mt-2">
-                                {reportData.itemsRequired.length > 0
+                                {reportData.itemsRequired && reportData.itemsRequired.length > 0
                                     ? `There ${reportData.itemsRequired.length === 1 ? 'is' : 'are'} ${reportData.itemsRequired.length} critical ${reportData.itemsRequired.length === 1 ? 'issue' : 'issues'} requiring immediate attention.`
                                     : 'No critical issues requiring immediate attention were found.'}
 
-                                {reportData.itemsRecommended.length > 0 && ` Additionally, ${reportData.itemsRecommended.length} ${reportData.itemsRecommended.length === 1 ? 'change is' : 'changes are'} recommended to improve cluster health.`}
+                                {reportData.itemsRecommended && reportData.itemsRecommended.length > 0 && ` Additionally, ${reportData.itemsRecommended.length} ${reportData.itemsRecommended.length === 1 ? 'change is' : 'changes are'} recommended to improve cluster health.`}
                             </p>
                         </div>
                     </div>
@@ -391,28 +375,28 @@ const Dashboard = () => {
                         <div className="bg-gray-50 p-4 rounded-lg grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <p className="text-sm font-medium">Infrastructure Setup</p>
-                                <p className="text-sm text-gray-600">{reportData.scoreInfra}% - {getScoreRating(reportData.scoreInfra)}</p>
-                                <p className="text-xs text-gray-500 mt-1">{reportData.infraDescription}</p>
+                                <p className="text-sm text-gray-600">{reportData.scoreInfra || 0}% - {getScoreRating(reportData.scoreInfra || 0)}</p>
+                                <p className="text-xs text-gray-500 mt-1">{reportData.infraDescription || 'No description available'}</p>
                             </div>
                             <div>
                                 <p className="text-sm font-medium">Policy Governance</p>
-                                <p className="text-sm text-gray-600">{reportData.scoreGovernance}% - {getScoreRating(reportData.scoreGovernance)}</p>
-                                <p className="text-xs text-gray-500 mt-1">{reportData.governanceDescription}</p>
+                                <p className="text-sm text-gray-600">{reportData.scoreGovernance || 0}% - {getScoreRating(reportData.scoreGovernance || 0)}</p>
+                                <p className="text-xs text-gray-500 mt-1">{reportData.governanceDescription || 'No description available'}</p>
                             </div>
                             <div>
                                 <p className="text-sm font-medium">Compliance</p>
-                                <p className="text-sm text-gray-600">{reportData.scoreCompliance}% - {getScoreRating(reportData.scoreCompliance)}</p>
-                                <p className="text-xs text-gray-500 mt-1">{reportData.complianceDescription}</p>
+                                <p className="text-sm text-gray-600">{reportData.scoreCompliance || 0}% - {getScoreRating(reportData.scoreCompliance || 0)}</p>
+                                <p className="text-xs text-gray-500 mt-1">{reportData.complianceDescription || 'No description available'}</p>
                             </div>
                             <div>
                                 <p className="text-sm font-medium">Monitoring</p>
-                                <p className="text-sm text-gray-600">{reportData.scoreMonitoring}% - {getScoreRating(reportData.scoreMonitoring)}</p>
-                                <p className="text-xs text-gray-500 mt-1">{reportData.monitoringDescription}</p>
+                                <p className="text-sm text-gray-600">{reportData.scoreMonitoring || 0}% - {getScoreRating(reportData.scoreMonitoring || 0)}</p>
+                                <p className="text-xs text-gray-500 mt-1">{reportData.monitoringDescription || 'No description available'}</p>
                             </div>
                             <div>
                                 <p className="text-sm font-medium">Build/Deploy Security</p>
-                                <p className="text-sm text-gray-600">{reportData.scoreBuildSecurity}% - {getScoreRating(reportData.scoreBuildSecurity)}</p>
-                                <p className="text-xs text-gray-500 mt-1">{reportData.buildSecurityDescription}</p>
+                                <p className="text-sm text-gray-600">{reportData.scoreBuildSecurity || 0}% - {getScoreRating(reportData.scoreBuildSecurity || 0)}</p>
+                                <p className="text-xs text-gray-500 mt-1">{reportData.buildSecurityDescription || 'No description available'}</p>
                             </div>
                         </div>
                     </div>
@@ -431,6 +415,10 @@ const Dashboard = () => {
     const renderRemediationTab = () => {
         if (!reportData) return null;
 
+        const requiredItems = reportData.itemsRequired || [];
+        const recommendedItems = reportData.itemsRecommended || [];
+        const advisoryItems = reportData.itemsAdvisory || [];
+
         return (
             <div className="bg-white rounded-lg shadow p-6">
                 <h2 className="text-xl font-semibold mb-6">Remediation Actions</h2>
@@ -438,10 +426,10 @@ const Dashboard = () => {
                 <div className="space-y-6">
                     {/* Required Actions */}
                     <div>
-                        <h3 className="text-lg font-medium mb-4 text-red-700">Required Actions ({reportData.itemsRequired.length})</h3>
-                        {reportData.itemsRequired.length > 0 ? (
+                        <h3 className="text-lg font-medium mb-4 text-red-700">Required Actions ({requiredItems.length})</h3>
+                        {requiredItems.length > 0 ? (
                             <div className="space-y-3">
-                                {reportData.itemsRequired.map((item, index) => (
+                                {requiredItems.map((item, index) => (
                                     <div key={`req-${index}`} className="p-3 bg-red-50 border border-red-100 rounded-md">
                                         <p className="text-red-800 font-medium">{item}</p>
                                     </div>
@@ -456,10 +444,10 @@ const Dashboard = () => {
 
                     {/* Recommended Actions */}
                     <div>
-                        <h3 className="text-lg font-medium mb-4 text-yellow-700">Recommended Actions ({reportData.itemsRecommended.length})</h3>
-                        {reportData.itemsRecommended.length > 0 ? (
+                        <h3 className="text-lg font-medium mb-4 text-yellow-700">Recommended Actions ({recommendedItems.length})</h3>
+                        {recommendedItems.length > 0 ? (
                             <div className="space-y-3">
-                                {reportData.itemsRecommended.map((item, index) => (
+                                {recommendedItems.map((item, index) => (
                                     <div key={`rec-${index}`} className="p-3 bg-yellow-50 border border-yellow-100 rounded-md">
                                         <p className="text-yellow-800 font-medium">{item}</p>
                                     </div>
@@ -474,10 +462,10 @@ const Dashboard = () => {
 
                     {/* Advisory Actions */}
                     <div>
-                        <h3 className="text-lg font-medium mb-4 text-blue-700">Advisory Items ({reportData.itemsAdvisory.length})</h3>
-                        {reportData.itemsAdvisory.length > 0 ? (
+                        <h3 className="text-lg font-medium mb-4 text-blue-700">Advisory Items ({advisoryItems.length})</h3>
+                        {advisoryItems.length > 0 ? (
                             <div className="space-y-3">
-                                {reportData.itemsAdvisory.map((item, index) => (
+                                {advisoryItems.map((item, index) => (
                                     <div key={`adv-${index}`} className="p-3 bg-blue-50 border border-blue-100 rounded-md">
                                         <p className="text-blue-800 font-medium">{item}</p>
                                     </div>

@@ -17,6 +17,8 @@ func IsValidAsciiDocFile(filename string) bool {
 
 // ExtractClusterName extracts the cluster name from the report
 func ExtractClusterName(lines []string) string {
+	clusterName := ""
+
 	for _, line := range lines {
 		if strings.Contains(line, "cluster") {
 			// Look for quoted cluster name or after keywords
@@ -24,42 +26,48 @@ func ExtractClusterName(lines []string) string {
 			matches := re.FindStringSubmatch(line)
 			if len(matches) > 1 {
 				if matches[1] != "" {
-					return matches[1]
+					clusterName = matches[1]
+					break
 				}
 				if len(matches) > 2 && matches[2] != "" {
-					return matches[2]
+					clusterName = matches[2]
+					break
 				}
 			}
 		}
 	}
-	return "OpenShift Cluster"
+
+	return clusterName
 }
 
 // ExtractCustomerName extracts the customer name from the report
 func ExtractCustomerName(lines []string) string {
+	customerName := ""
+
 	for _, line := range lines {
 		if strings.Contains(line, "conducted") && strings.Contains(line, "health check") {
 			re := regexp.MustCompile(`conducted.*?([A-Za-z0-9_\s]+)'s`)
 			matches := re.FindStringSubmatch(line)
 			if len(matches) > 1 {
-				return strings.TrimSpace(matches[1])
+				customerName = strings.TrimSpace(matches[1])
+				break
 			}
 		}
 	}
-	return "Your Company"
+
+	return customerName
 }
 
 // ExtractOverallScore extracts the overall score from the report
 func ExtractOverallScore(lines []string) float64 {
-	scorePattern := regexp.MustCompile(`Overall\s+Cluster\s+Health:\s+(\d+\.?\d*)%`)
+	var score float64
 
+	scorePattern := regexp.MustCompile(`Overall\s+Cluster\s+Health:\s+(\d+\.?\d*)%`)
 	for _, line := range lines {
 		matches := scorePattern.FindStringSubmatch(line)
 		if len(matches) > 1 {
-			score, err := strconv.ParseFloat(matches[1], 64)
-			if err == nil {
-				return score
-			}
+			score, _ = strconv.ParseFloat(matches[1], 64)
+			return score
 		}
 	}
 
@@ -68,94 +76,136 @@ func ExtractOverallScore(lines []string) float64 {
 	for _, line := range lines {
 		matches := healthScorePattern.FindStringSubmatch(line)
 		if len(matches) > 1 {
-			score, err := strconv.ParseFloat(matches[1], 64)
-			if err == nil {
-				return score
-			}
+			score, _ = strconv.ParseFloat(matches[1], 64)
+			return score
 		}
 	}
 
-	// If not found, try to calculate from status counts
+	// If no explicit score is found, calculate from status counts in the Summary section
 	return CalculateScoreFromStatusCounts(lines)
 }
 
-// CalculateScoreFromStatusCounts calculates an approximate overall score based on status counts
+// CalculateScoreFromStatusCounts calculates score based on status counts in Summary section
 func CalculateScoreFromStatusCounts(lines []string) float64 {
-	totalItems := 0
-	requiredChanges := 0
-	recommendedChanges := 0
-	advisory := 0
-	noChanges := 0
-	notApplicable := 0
+	required, recommended, advisory, noChange, notApplicable := 0, 0, 0, 0, 0
 
-	// Pattern to match status cells in the table
-	statusCellPattern := regexp.MustCompile(`{set:cellbgcolor:(#[A-Fa-f0-9]+)}`)
+	// Find summary section boundaries
+	summaryStartIndex := -1
+	summaryEndIndex := -1
 
-	for _, line := range lines {
-		if matches := statusCellPattern.FindStringSubmatch(line); len(matches) > 0 {
-			colorCode := strings.ToUpper(matches[1])
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "= Summary" {
+			summaryStartIndex = i
+			break
+		}
+	}
 
-			// Only count items that are actual evaluations (not section headers or notes)
-			if strings.Contains(line, "Changes Required") ||
-				strings.Contains(line, "Changes Recommended") ||
-				strings.Contains(line, "N/A") ||
-				strings.Contains(line, "Advisory") ||
-				strings.Contains(line, "No Change") {
-				continue // Skip the key description lines
-			}
+	if summaryStartIndex == -1 {
+		return 0.0 // Can't find summary section
+	}
 
-			totalItems++
+	// Find end of summary (next section or end of file)
+	for i := summaryStartIndex + 1; i < len(lines); i++ {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "=") &&
+			!strings.Contains(lines[i], "= Summary") {
+			summaryEndIndex = i
+			break
+		}
+	}
 
-			switch colorCode {
-			case "#FF0000":
-				requiredChanges++
-			case "#FEFE20":
-				recommendedChanges++
-			case "#80E5FF":
+	if summaryEndIndex == -1 {
+		summaryEndIndex = len(lines) // Use end of file if no next section
+	}
+
+	// Process summary section for color codes
+	inTable := false
+	for i := summaryStartIndex; i < summaryEndIndex; i++ {
+		line := lines[i]
+
+		// Detect start of table
+		if strings.Contains(line, "|===") && !inTable {
+			inTable = true
+			continue
+		}
+
+		// Detect end of table
+		if strings.Contains(line, "|===") && inTable {
+			break
+		}
+
+		// Skip header/legend rows
+		if inTable && (strings.Contains(line, "*Category*") ||
+			strings.Contains(line, "Indicates Changes Required") ||
+			strings.Contains(line, "Indicates Changes Recommended") ||
+			strings.Contains(line, "No advise given") ||
+			strings.Contains(line, "No change required") ||
+			strings.Contains(line, "Not yet evaluated")) {
+			continue
+		}
+
+		// Count by color codes
+		if inTable {
+			if strings.Contains(line, "{set:cellbgcolor:#FF0000}") {
+				required++
+			} else if strings.Contains(line, "{set:cellbgcolor:#FEFE20}") {
+				recommended++
+			} else if strings.Contains(line, "{set:cellbgcolor:#80E5FF}") {
 				advisory++
-			case "#00FF00":
-				noChanges++
-			case "#A6B9BF":
+			} else if strings.Contains(line, "{set:cellbgcolor:#00FF00}") {
+				noChange++
+			} else if strings.Contains(line, "{set:cellbgcolor:#A6B9BF}") {
 				notApplicable++
 			}
 		}
 	}
 
+	// Calculate score if we have valid items
+	totalItems := required + recommended + advisory + noChange
 	if totalItems == 0 {
-		// Calculate from the results table
-		requiredCount, recommendedCount, advisoryCount := CountStatusByColor(lines)
-		totalRelevantItems := requiredCount + recommendedCount + advisoryCount + noChanges
-
-		if totalRelevantItems == 0 {
-			return 75.0 // Default fallback if no items found
-		}
-
-		// Weight calculation
-		weightedSum := (noChanges * 100.0) + (advisoryCount * 80.0) + (recommendedCount * 50.0)
-		return float64(weightedSum) / float64(totalRelevantItems)
+		return 0.0
 	}
 
-	// Calculate score based on weighted values
-	// Required changes have the most negative impact, followed by recommended
-	validItems := totalItems - notApplicable
-	if validItems == 0 {
-		return 100.0
-	}
-
-	// Weight: No changes = 100%, Advisory = 80%, Recommended = 50%, Required = 0%
-	// Convert values to float64 to avoid integer division truncation
-	weightedSum := float64(noChanges*100.0) + float64(advisory*80.0) + float64(recommendedChanges*50.0)
-	return weightedSum / float64(validItems)
+	// Weight calculation based on status counts
+	// Required = 0%, Recommended = 50%, Advisory = 80%, No Change = 100%
+	weightedSum := float64(noChange*100 + advisory*80 + recommended*50)
+	return weightedSum / float64(totalItems)
 }
 
-// CountStatusByColor counts items by their color status in the report
+// CountStatusByColor counts items by their color status in the Summary section only
 func CountStatusByColor(lines []string) (required, recommended, advisory int) {
-	requiredPattern := regexp.MustCompile(`{set:cellbgcolor:#FF0000}`)
-	recommendedPattern := regexp.MustCompile(`{set:cellbgcolor:#FEFE20}`)
-	advisoryPattern := regexp.MustCompile(`{set:cellbgcolor:#80E5FF}`)
+	// Find summary section boundaries
+	summaryStartIndex := -1
+	summaryEndIndex := -1
 
-	for _, line := range lines {
-		// Skip the key legend lines
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "= Summary" {
+			summaryStartIndex = i
+			break
+		}
+	}
+
+	if summaryStartIndex == -1 {
+		return 0, 0, 0 // Can't find summary section
+	}
+
+	// Find end of summary (next section or end of file)
+	for i := summaryStartIndex + 1; i < len(lines); i++ {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "=") &&
+			!strings.Contains(lines[i], "= Summary") {
+			summaryEndIndex = i
+			break
+		}
+	}
+
+	if summaryEndIndex == -1 {
+		summaryEndIndex = len(lines) // Use end of file if no next section
+	}
+
+	// Process just the summary section
+	for i := summaryStartIndex; i < summaryEndIndex; i++ {
+		line := lines[i]
+
+		// Skip the legend lines
 		if strings.Contains(line, "Changes Required") && strings.Contains(line, "Description") {
 			continue
 		}
@@ -167,13 +217,16 @@ func CountStatusByColor(lines []string) (required, recommended, advisory int) {
 		}
 
 		// Count actual items
-		if requiredPattern.MatchString(line) {
+		if strings.Contains(line, "{set:cellbgcolor:#FF0000}") &&
+			!strings.Contains(line, "Indicates Changes Required") {
 			required++
 		}
-		if recommendedPattern.MatchString(line) {
+		if strings.Contains(line, "{set:cellbgcolor:#FEFE20}") &&
+			!strings.Contains(line, "Indicates Changes Recommended") {
 			recommended++
 		}
-		if advisoryPattern.MatchString(line) {
+		if strings.Contains(line, "{set:cellbgcolor:#80E5FF}") &&
+			!strings.Contains(line, "No change required or recommended") {
 			advisory++
 		}
 	}
@@ -183,15 +236,14 @@ func CountStatusByColor(lines []string) (required, recommended, advisory int) {
 
 // ExtractCategoryScore extracts the score for a specific category
 func ExtractCategoryScore(lines []string, categoryName string) int {
-	scorePattern := regexp.MustCompile(fmt.Sprintf(`\*%s\*:\s+(\d+)%%`, regexp.QuoteMeta(categoryName)))
+	var score int
 
+	scorePattern := regexp.MustCompile(fmt.Sprintf(`\*%s\*:\s+(\d+)%%`, regexp.QuoteMeta(categoryName)))
 	for _, line := range lines {
 		matches := scorePattern.FindStringSubmatch(line)
 		if len(matches) > 1 {
-			score, err := strconv.Atoi(matches[1])
-			if err == nil {
-				return score
-			}
+			score, _ = strconv.Atoi(matches[1])
+			return score
 		}
 	}
 
@@ -201,8 +253,7 @@ func ExtractCategoryScore(lines []string, categoryName string) int {
 
 // ExtractGeneralCategoryScore searches for a category score using keywords
 func ExtractGeneralCategoryScore(lines []string, keywords ...string) int {
-	// Default score
-	defaultScore := 75
+	var score int
 
 	// Search for lines containing any of the keywords and a percentage
 	percentPattern := regexp.MustCompile(`(\d+)%`)
@@ -223,20 +274,18 @@ func ExtractGeneralCategoryScore(lines []string, keywords ...string) int {
 			// Look for a percentage
 			matches := percentPattern.FindStringSubmatch(line)
 			if len(matches) > 1 {
-				score, err := strconv.Atoi(matches[1])
-				if err == nil {
-					return score
-				}
+				score, _ = strconv.Atoi(matches[1])
+				return score
 			}
 		}
 	}
 
-	return defaultScore
+	return score
 }
 
 // ExtractCategoryDescription extracts the description for a specific category
 func ExtractCategoryDescription(lines []string, categoryName string) string {
-	var description string
+	description := ""
 
 	// Look for lines containing the category name followed by a description
 	for i, line := range lines {
@@ -266,15 +315,10 @@ func ExtractCategoryDescription(lines []string, categoryName string) string {
 		}
 	}
 
-	// If no description found, generate a generic one
-	if description == "" {
-		description = GenerateDescription(categoryName, ExtractCategoryScore(lines, categoryName))
-	}
-
 	return description
 }
 
-// GenerateDescription generates a generic description based on the category and score
+// GenerateDescription generates a description based on the category and score
 func GenerateDescription(categoryName string, score int) string {
 	if score >= 90 {
 		return fmt.Sprintf("%s is excellent with best practices in place.", categoryName)
@@ -284,428 +328,330 @@ func GenerateDescription(categoryName string, score int) string {
 		return fmt.Sprintf("%s meets most requirements but has some areas that could be improved.", categoryName)
 	} else if score >= 60 {
 		return fmt.Sprintf("%s has several areas that need attention to meet best practices.", categoryName)
-	} else {
+	} else if score > 0 {
 		return fmt.Sprintf("%s requires significant improvements to ensure stability and security.", categoryName)
 	}
+
+	return ""
 }
 
-// ExtractRequiredChanges extracts items marked as "Changes Required"
+// ExtractRequiredChanges extracts items marked as "Changes Required" from Summary section
 func ExtractRequiredChanges(lines []string) []string {
 	var requiredItems []string
-	var found bool
 
-	// First, look for the table structure
-	for i := 0; i < len(lines); i++ {
-		if strings.Contains(lines[i], "Category") &&
-			strings.Contains(lines[i], "Item Evaluated") &&
-			strings.Contains(lines[i], "Observed Result") &&
-			strings.Contains(lines[i], "Recommendation") {
+	// Find summary section boundaries first
+	summaryStartIndex := -1
+	summaryEndIndex := -1
 
-			// Found the table header, now process rows
-			for j := i + 1; j < len(lines); j++ {
-				line := lines[j]
-
-				// Check if this is a row with "Changes Required" status
-				if strings.Contains(line, "{set:cellbgcolor:#FF0000}") && !strings.Contains(line, "Indicates Changes Required") {
-					// This is a "Changes Required" row - extract the item name and observation
-
-					// Find the Item Evaluated in the previous line(s)
-					var itemName string
-					for k := j - 1; k > j-5 && k >= 0; k-- {
-						if strings.Contains(lines[k], "<<") && strings.Contains(lines[k], ">>") {
-							// Extract text between << and >>
-							matches := regexp.MustCompile(`<<([^>]+)>>`).FindStringSubmatch(lines[k])
-							if len(matches) > 1 {
-								itemName = strings.TrimSpace(matches[1])
-								break
-							}
-						}
-					}
-
-					// Find the Observed Result
-					var observation string
-					for k := j - 1; k > j-5 && k >= 0; k-- {
-						if !strings.Contains(lines[k], "<<") && !strings.Contains(lines[k], "Category") &&
-							strings.TrimSpace(lines[k]) != "" && !strings.Contains(lines[k], "cellbgcolor") {
-							observation = strings.TrimSpace(lines[k])
-							break
-						}
-					}
-
-					if itemName != "" {
-						item := fmt.Sprintf("%s: %s", itemName, observation)
-						requiredItems = append(requiredItems, item)
-						found = true
-					}
-				}
-			}
-
-			// No need to continue if we found the table
-			if found {
-				break
-			}
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "= Summary" {
+			summaryStartIndex = i
+			break
 		}
 	}
 
-	// If we couldn't extract properly with the first method, try the fallback
-	if !found {
-		// Old method
-		for i, line := range lines {
-			if strings.Contains(line, "{set:cellbgcolor:#FF0000}") &&
-				!strings.Contains(line, "Indicates Changes Required") {
+	if summaryStartIndex == -1 {
+		return requiredItems // Empty list, summary not found
+	}
 
-				// Extract item name (usually in a <<item>> format)
-				var itemName string
-				itemMatches := regexp.MustCompile(`<<([^>]+)>>`).FindStringSubmatch(line)
-				if len(itemMatches) > 1 {
-					itemName = strings.TrimSpace(itemMatches[1])
+	// Find end of summary (next section or end of file)
+	for i := summaryStartIndex + 1; i < len(lines); i++ {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "=") &&
+			!strings.Contains(lines[i], "= Summary") {
+			summaryEndIndex = i
+			break
+		}
+	}
+
+	if summaryEndIndex == -1 {
+		summaryEndIndex = len(lines) // Use end of file if no next section
+	}
+
+	// Now process only the lines in the Summary section
+	summaryLines := lines[summaryStartIndex:summaryEndIndex]
+
+	// Find ITEM blocks in the Summary section
+	var currentItem string
+	var itemName string
+	var observation string
+	inItem := false
+
+	for _, line := range summaryLines {
+		// Detect ITEM start
+		if strings.Contains(line, "// ------------------------ITEM START") {
+			inItem = true
+			itemName = ""
+			observation = ""
+			continue
+		}
+
+		// Detect ITEM end
+		if strings.Contains(line, "// ------------------------ITEM END") {
+			if inItem && itemName != "" {
+				if observation != "" {
+					currentItem = fmt.Sprintf("%s: %s", itemName, observation)
 				} else {
-					// Try to look in adjacent lines
-					for j := i - 3; j < i+3 && j < len(lines); j++ {
-						if j >= 0 && strings.Contains(lines[j], "<<") {
-							itemMatches = regexp.MustCompile(`<<([^>]+)>>`).FindStringSubmatch(lines[j])
-							if len(itemMatches) > 1 {
-								itemName = strings.TrimSpace(itemMatches[1])
-								break
-							}
-						}
-					}
+					currentItem = itemName
 				}
 
-				// Extract observation (usually text after a pipe | character)
-				var observation string
-				parts := strings.Split(line, "|")
-				if len(parts) >= 2 {
-					for _, part := range parts {
-						if !strings.Contains(part, "<<") &&
-							!strings.Contains(part, "cellbgcolor") &&
-							strings.TrimSpace(part) != "" {
-							observation = strings.TrimSpace(part)
-							break
-						}
-					}
-				}
-
-				// If we couldn't find a structured observation, use the next line
-				if observation == "" && i+1 < len(lines) {
-					observation = strings.TrimSpace(lines[i+1])
-				}
-
-				if itemName != "" {
-					item := fmt.Sprintf("%s: %s", itemName, observation)
-					requiredItems = append(requiredItems, item)
+				if currentItem != "" {
+					requiredItems = append(requiredItems, currentItem)
 				}
 			}
+			inItem = false
+			continue
+		}
+
+		if !inItem {
+			continue
+		}
+
+		// Extract item name
+		if strings.Contains(line, "<<") && strings.Contains(line, ">>") {
+			re := regexp.MustCompile(`<<([^>]+)>>`)
+			matches := re.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				itemName = strings.TrimSpace(matches[1])
+			}
+			continue
+		}
+
+		// Extract observation
+		if itemName != "" && observation == "" &&
+			!strings.HasPrefix(line, "//") && !strings.Contains(line, "{set:cellbgcolor") {
+			if strings.HasPrefix(line, "|") {
+				line = strings.TrimSpace(line[1:])
+			}
+			if line != "" {
+				observation = line
+			}
+			continue
+		}
+
+		// Check for required status
+		if strings.Contains(line, "{set:cellbgcolor:#FF0000}") &&
+			!strings.Contains(line, "Indicates Changes Required") {
+			// This is a "Changes Required" item - keep it in the list
+			continue
+		} else if strings.Contains(line, "set:cellbgcolor:") {
+			// This item has a different status - remove it from consideration
+			inItem = false
 		}
 	}
 
 	return requiredItems
 }
 
-// ExtractRecommendedChanges extracts items marked as "Changes Recommended"
+// ExtractRecommendedChanges extracts items marked as "Changes Recommended" from Summary section
 func ExtractRecommendedChanges(lines []string) []string {
 	var recommendedItems []string
-	var found bool
 
-	// First, look for the table structure
-	for i := 0; i < len(lines); i++ {
-		if strings.Contains(lines[i], "Category") &&
-			strings.Contains(lines[i], "Item Evaluated") &&
-			strings.Contains(lines[i], "Observed Result") &&
-			strings.Contains(lines[i], "Recommendation") {
+	// Find summary section boundaries first
+	summaryStartIndex := -1
+	summaryEndIndex := -1
 
-			// Found the table header, now process rows
-			for j := i + 1; j < len(lines); j++ {
-				line := lines[j]
-
-				// Check if this is a row with "Changes Recommended" status
-				if strings.Contains(line, "{set:cellbgcolor:#FEFE20}") && !strings.Contains(line, "Indicates Changes Recommended") {
-					// This is a "Changes Recommended" row - extract the item name and observation
-
-					// Find the Item Evaluated in the previous line(s)
-					var itemName string
-					for k := j - 1; k > j-5 && k >= 0; k-- {
-						if strings.Contains(lines[k], "<<") && strings.Contains(lines[k], ">>") {
-							// Extract text between << and >>
-							matches := regexp.MustCompile(`<<([^>]+)>>`).FindStringSubmatch(lines[k])
-							if len(matches) > 1 {
-								itemName = strings.TrimSpace(matches[1])
-								break
-							}
-						}
-					}
-
-					// Find the Observed Result
-					var observation string
-					for k := j - 1; k > j-5 && k >= 0; k-- {
-						if !strings.Contains(lines[k], "<<") && !strings.Contains(lines[k], "Category") &&
-							strings.TrimSpace(lines[k]) != "" && !strings.Contains(lines[k], "cellbgcolor") {
-							observation = strings.TrimSpace(lines[k])
-							break
-						}
-					}
-
-					if itemName != "" {
-						item := fmt.Sprintf("%s: %s", itemName, observation)
-						recommendedItems = append(recommendedItems, item)
-						found = true
-					}
-				}
-			}
-
-			// No need to continue if we found the table
-			if found {
-				break
-			}
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "= Summary" {
+			summaryStartIndex = i
+			break
 		}
 	}
 
-	// If we couldn't extract properly with the first method, try the fallback
-	if !found {
-		// Old method
-		for i, line := range lines {
-			if strings.Contains(line, "{set:cellbgcolor:#FEFE20}") &&
-				!strings.Contains(line, "Indicates Changes Recommended") {
+	if summaryStartIndex == -1 {
+		return recommendedItems // Empty list, summary not found
+	}
 
-				// Extract item name (usually in a <<item>> format)
-				var itemName string
-				itemMatches := regexp.MustCompile(`<<([^>]+)>>`).FindStringSubmatch(line)
-				if len(itemMatches) > 1 {
-					itemName = strings.TrimSpace(itemMatches[1])
+	// Find end of summary (next section or end of file)
+	for i := summaryStartIndex + 1; i < len(lines); i++ {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "=") &&
+			!strings.Contains(lines[i], "= Summary") {
+			summaryEndIndex = i
+			break
+		}
+	}
+
+	if summaryEndIndex == -1 {
+		summaryEndIndex = len(lines) // Use end of file if no next section
+	}
+
+	// Now process only the lines in the Summary section
+	summaryLines := lines[summaryStartIndex:summaryEndIndex]
+
+	// Find ITEM blocks in the Summary section
+	var currentItem string
+	var itemName string
+	var observation string
+	inItem := false
+
+	for _, line := range summaryLines {
+		// Detect ITEM start
+		if strings.Contains(line, "// ------------------------ITEM START") {
+			inItem = true
+			itemName = ""
+			observation = ""
+			continue
+		}
+
+		// Detect ITEM end
+		if strings.Contains(line, "// ------------------------ITEM END") {
+			if inItem && itemName != "" {
+				if observation != "" {
+					currentItem = fmt.Sprintf("%s: %s", itemName, observation)
 				} else {
-					// Try to look in adjacent lines
-					for j := i - 3; j < i+3 && j < len(lines); j++ {
-						if j >= 0 && strings.Contains(lines[j], "<<") {
-							itemMatches = regexp.MustCompile(`<<([^>]+)>>`).FindStringSubmatch(lines[j])
-							if len(itemMatches) > 1 {
-								itemName = strings.TrimSpace(itemMatches[1])
-								break
-							}
-						}
-					}
+					currentItem = itemName
 				}
 
-				// Extract observation (usually text after a pipe | character)
-				var observation string
-				parts := strings.Split(line, "|")
-				if len(parts) >= 2 {
-					for _, part := range parts {
-						if !strings.Contains(part, "<<") &&
-							!strings.Contains(part, "cellbgcolor") &&
-							strings.TrimSpace(part) != "" {
-							observation = strings.TrimSpace(part)
-							break
-						}
-					}
-				}
-
-				// If we couldn't find a structured observation, use the next line
-				if observation == "" && i+1 < len(lines) {
-					observation = strings.TrimSpace(lines[i+1])
-				}
-
-				if itemName != "" {
-					item := fmt.Sprintf("%s: %s", itemName, observation)
-					recommendedItems = append(recommendedItems, item)
+				if currentItem != "" {
+					recommendedItems = append(recommendedItems, currentItem)
 				}
 			}
+			inItem = false
+			continue
+		}
+
+		if !inItem {
+			continue
+		}
+
+		// Extract item name
+		if strings.Contains(line, "<<") && strings.Contains(line, ">>") {
+			re := regexp.MustCompile(`<<([^>]+)>>`)
+			matches := re.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				itemName = strings.TrimSpace(matches[1])
+			}
+			continue
+		}
+
+		// Extract observation
+		if itemName != "" && observation == "" &&
+			!strings.HasPrefix(line, "//") && !strings.Contains(line, "{set:cellbgcolor") {
+			if strings.HasPrefix(line, "|") {
+				line = strings.TrimSpace(line[1:])
+			}
+			if line != "" {
+				observation = line
+			}
+			continue
+		}
+
+		// Check for recommended status
+		if strings.Contains(line, "{set:cellbgcolor:#FEFE20}") &&
+			!strings.Contains(line, "Indicates Changes Recommended") {
+			// This is a "Changes Recommended" item - keep it in the list
+			continue
+		} else if strings.Contains(line, "set:cellbgcolor:") {
+			// This item has a different status - remove it from consideration
+			inItem = false
 		}
 	}
 
 	return recommendedItems
 }
 
-// ExtractAdvisoryActions extracts items marked as "Advisory"
+// ExtractAdvisoryActions extracts items marked as "Advisory" from Summary section
 func ExtractAdvisoryActions(lines []string) []string {
 	var advisoryItems []string
-	var found bool
 
-	// First, look for the table structure
-	for i := 0; i < len(lines); i++ {
-		if strings.Contains(lines[i], "Category") &&
-			strings.Contains(lines[i], "Item Evaluated") &&
-			strings.Contains(lines[i], "Observed Result") &&
-			strings.Contains(lines[i], "Recommendation") {
+	// Find summary section boundaries first
+	summaryStartIndex := -1
+	summaryEndIndex := -1
 
-			// Found the table header, now process rows
-			for j := i + 1; j < len(lines); j++ {
-				line := lines[j]
-
-				// Check if this is a row with "Advisory" status
-				if strings.Contains(line, "{set:cellbgcolor:#80E5FF}") && !strings.Contains(line, "No advise given") {
-					// This is an "Advisory" row - extract the item name and observation
-
-					// Find the Item Evaluated in the previous line(s)
-					var itemName string
-					for k := j - 1; k > j-5 && k >= 0; k-- {
-						if strings.Contains(lines[k], "<<") && strings.Contains(lines[k], ">>") {
-							// Extract text between << and >>
-							matches := regexp.MustCompile(`<<([^>]+)>>`).FindStringSubmatch(lines[k])
-							if len(matches) > 1 {
-								itemName = strings.TrimSpace(matches[1])
-								break
-							}
-						}
-					}
-
-					// Find the Observed Result
-					var observation string
-					for k := j - 1; k > j-5 && k >= 0; k-- {
-						if !strings.Contains(lines[k], "<<") && !strings.Contains(lines[k], "Category") &&
-							strings.TrimSpace(lines[k]) != "" && !strings.Contains(lines[k], "cellbgcolor") {
-							observation = strings.TrimSpace(lines[k])
-							break
-						}
-					}
-
-					if itemName != "" {
-						item := fmt.Sprintf("%s: %s", itemName, observation)
-						advisoryItems = append(advisoryItems, item)
-						found = true
-					}
-				}
-			}
-
-			// No need to continue if we found the table
-			if found {
-				break
-			}
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "= Summary" {
+			summaryStartIndex = i
+			break
 		}
 	}
 
-	// If we couldn't extract properly with the first method, try the fallback
-	if !found {
-		// Old method
-		for i, line := range lines {
-			if strings.Contains(line, "{set:cellbgcolor:#80E5FF}") &&
-				!strings.Contains(line, "No advise given") {
+	if summaryStartIndex == -1 {
+		return advisoryItems // Empty list, summary not found
+	}
 
-				// Extract item name (usually in a <<item>> format)
-				var itemName string
-				itemMatches := regexp.MustCompile(`<<([^>]+)>>`).FindStringSubmatch(line)
-				if len(itemMatches) > 1 {
-					itemName = strings.TrimSpace(itemMatches[1])
+	// Find end of summary (next section or end of file)
+	for i := summaryStartIndex + 1; i < len(lines); i++ {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "=") &&
+			!strings.Contains(lines[i], "= Summary") {
+			summaryEndIndex = i
+			break
+		}
+	}
+
+	if summaryEndIndex == -1 {
+		summaryEndIndex = len(lines) // Use end of file if no next section
+	}
+
+	// Now process only the lines in the Summary section
+	summaryLines := lines[summaryStartIndex:summaryEndIndex]
+
+	// Find ITEM blocks in the Summary section
+	var currentItem string
+	var itemName string
+	var observation string
+	inItem := false
+
+	for _, line := range summaryLines {
+		// Detect ITEM start
+		if strings.Contains(line, "// ------------------------ITEM START") {
+			inItem = true
+			itemName = ""
+			observation = ""
+			continue
+		}
+
+		// Detect ITEM end
+		if strings.Contains(line, "// ------------------------ITEM END") {
+			if inItem && itemName != "" {
+				if observation != "" {
+					currentItem = fmt.Sprintf("%s: %s", itemName, observation)
 				} else {
-					// Try to look in adjacent lines
-					for j := i - 3; j < i+3 && j < len(lines); j++ {
-						if j >= 0 && strings.Contains(lines[j], "<<") {
-							itemMatches = regexp.MustCompile(`<<([^>]+)>>`).FindStringSubmatch(lines[j])
-							if len(itemMatches) > 1 {
-								itemName = strings.TrimSpace(itemMatches[1])
-								break
-							}
-						}
-					}
+					currentItem = itemName
 				}
 
-				// Extract observation (usually text after a pipe | character)
-				var observation string
-				parts := strings.Split(line, "|")
-				if len(parts) >= 2 {
-					for _, part := range parts {
-						if !strings.Contains(part, "<<") &&
-							!strings.Contains(part, "cellbgcolor") &&
-							strings.TrimSpace(part) != "" {
-							observation = strings.TrimSpace(part)
-							break
-						}
-					}
-				}
-
-				// If we couldn't find a structured observation, use the next line
-				if observation == "" && i+1 < len(lines) {
-					observation = strings.TrimSpace(lines[i+1])
-				}
-
-				if itemName != "" {
-					item := fmt.Sprintf("%s: %s", itemName, observation)
-					advisoryItems = append(advisoryItems, item)
+				if currentItem != "" {
+					advisoryItems = append(advisoryItems, currentItem)
 				}
 			}
+			inItem = false
+			continue
+		}
+
+		if !inItem {
+			continue
+		}
+
+		// Extract item name
+		if strings.Contains(line, "<<") && strings.Contains(line, ">>") {
+			re := regexp.MustCompile(`<<([^>]+)>>`)
+			matches := re.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				itemName = strings.TrimSpace(matches[1])
+			}
+			continue
+		}
+
+		// Extract observation
+		if itemName != "" && observation == "" &&
+			!strings.HasPrefix(line, "//") && !strings.Contains(line, "{set:cellbgcolor") {
+			if strings.HasPrefix(line, "|") {
+				line = strings.TrimSpace(line[1:])
+			}
+			if line != "" {
+				observation = line
+			}
+			continue
+		}
+
+		// Check for advisory status
+		if strings.Contains(line, "{set:cellbgcolor:#80E5FF}") &&
+			!strings.Contains(line, "No advise given") {
+			// This is an "Advisory" item - keep it in the list
+			continue
+		} else if strings.Contains(line, "set:cellbgcolor:") {
+			// This item has a different status - remove it from consideration
+			inItem = false
 		}
 	}
 
 	return advisoryItems
-}
-
-// ExtractActionItems extracts action items from a specific section
-func ExtractActionItems(lines []string, sectionName string) []string {
-	// First try to use the new extraction methods based on the status color
-	if sectionName == "Changes Required" {
-		requiredItems := ExtractRequiredChanges(lines)
-		if len(requiredItems) > 0 {
-			return requiredItems
-		}
-	} else if sectionName == "Changes Recommended" {
-		recommendedItems := ExtractRecommendedChanges(lines)
-		if len(recommendedItems) > 0 {
-			return recommendedItems
-		}
-	} else if sectionName == "Advisory Actions" {
-		advisoryItems := ExtractAdvisoryActions(lines)
-		if len(advisoryItems) > 0 {
-			return advisoryItems
-		}
-	}
-
-	// Fallback to the original method if the new methods don't return any results
-	var items []string
-	inSection := false
-
-	// Look for section header and collect items
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		// Look for section start
-		if strings.Contains(trimmed, sectionName) && !inSection {
-			inSection = true
-			continue
-		}
-
-		// Check for end of section (usually another section header)
-		if inSection && (strings.HasPrefix(trimmed, "*") || strings.HasPrefix(trimmed, "=")) &&
-			!strings.HasPrefix(trimmed, "- ") && !strings.HasPrefix(trimmed, "* ") {
-			break
-		}
-
-		// Collect items that look like list entries
-		if inSection && (strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ")) {
-			item := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(trimmed, "- "), "* "))
-			if item != "" {
-				items = append(items, item)
-			}
-		}
-	}
-
-	return items
-}
-
-// ExtractIssuesBySeverity extracts issues based on their severity
-func ExtractIssuesBySeverity(lines []string, severities ...string) []string {
-	var items []string
-
-	for _, line := range lines {
-		lowercase := strings.ToLower(line)
-
-		// Check if line contains any severity marker
-		found := false
-		for _, severity := range severities {
-			if strings.Contains(lowercase, strings.ToLower(severity)) {
-				found = true
-				break
-			}
-		}
-
-		if found {
-			// Extract the issue description - look for a colon or just take the whole line
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) > 1 && strings.TrimSpace(parts[1]) != "" {
-				items = append(items, strings.TrimSpace(parts[1]))
-			} else if strings.TrimSpace(line) != "" {
-				items = append(items, strings.TrimSpace(line))
-			}
-		}
-	}
-
-	return items
 }

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -225,20 +226,24 @@ func (s *Server) HandleReportUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Ensure file is flushed and closed before parsing
+	// Ensure file is flushed
 	tempFile.Sync()
-	tempFile.Close()
 
-	// Parse the report
-	summary, err := utils.ParseAsciiDocExecutiveSummary(tempFile.Name())
+	// Parse the AsciiDoc file directly (without relying on utils)
+	fileContent, err := os.ReadFile(tempFile.Name())
+	if err != nil {
+		log.Printf("Error reading file: %v", err)
+		http.Error(w, `{"error":"Failed to read file"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// Extract data from the file
+	summary, err := parseAsciiDocReport(string(fileContent))
 	if err != nil {
 		log.Printf("Error parsing report: %v", err)
 		http.Error(w, fmt.Sprintf(`{"error":"Failed to parse report: %s"}`, err), http.StatusInternalServerError)
 		return
 	}
-
-	// Validate and fix the summary data
-	validateSummaryData(summary)
 
 	// Return the summary as JSON
 	encoder := json.NewEncoder(w)
@@ -258,68 +263,332 @@ func (s *Server) HandleReportUpload(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// validateSummaryData ensures all summary data is valid and provides fallbacks where needed
-func validateSummaryData(summary *types.ReportSummary) {
-	// Ensure overall score is within range
-	if summary.OverallScore < 0 {
-		summary.OverallScore = 0
-	} else if summary.OverallScore > 100 {
-		summary.OverallScore = 100
+// parseAsciiDocReport parses an AsciiDoc report directly
+func parseAsciiDocReport(content string) (*types.ReportSummary, error) {
+	// Split content into lines
+	lines := strings.Split(content, "\n")
+
+	// Initialize summary struct
+	summary := &types.ReportSummary{
+		ItemsRequired:    []string{},
+		ItemsRecommended: []string{},
+		ItemsAdvisory:    []string{},
+		NoChangeCount:    0,
 	}
 
-	// Ensure all category scores are within range and have fallbacks
-	validateCategoryScore(&summary.ScoreInfra)
-	validateCategoryScore(&summary.ScoreGovernance)
-	validateCategoryScore(&summary.ScoreCompliance)
-	validateCategoryScore(&summary.ScoreMonitoring)
-	validateCategoryScore(&summary.ScoreBuildSecurity)
+	// Extract summary section
+	var requiredItems, recommendedItems, advisoryItems []string
+	var noChangeCount, notApplicableCount int
 
-	// Ensure lists are initialized
-	if summary.ItemsRequired == nil {
-		summary.ItemsRequired = []string{}
-	}
-	if summary.ItemsRecommended == nil {
-		summary.ItemsRecommended = []string{}
-	}
-	if summary.ItemsAdvisory == nil {
-		summary.ItemsAdvisory = []string{}
+	// Find where the Summary section starts
+	summaryStartIndex := -1
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "= Summary" {
+			summaryStartIndex = i
+			break
+		}
 	}
 
-	// Ensure descriptions are set and properly formatted
-	if summary.InfraDescription == "" {
-		summary.InfraDescription = utils.GenerateDescription("Infrastructure Setup", summary.ScoreInfra)
-	}
-	if summary.GovernanceDescription == "" {
-		summary.GovernanceDescription = utils.GenerateDescription("Policy Governance", summary.ScoreGovernance)
-	}
-	if summary.ComplianceDescription == "" {
-		summary.ComplianceDescription = utils.GenerateDescription("Compliance Benchmarking", summary.ScoreCompliance)
-	}
-	if summary.MonitoringDescription == "" {
-		summary.MonitoringDescription = utils.GenerateDescription("Central Monitoring", summary.ScoreMonitoring)
-	}
-	if summary.BuildSecurityDescription == "" {
-		summary.BuildSecurityDescription = utils.GenerateDescription("Build/Deploy Security", summary.ScoreBuildSecurity)
+	if summaryStartIndex == -1 {
+		return summary, nil // No summary section found
 	}
 
-	// Set default cluster and customer names if empty
-	if summary.ClusterName == "" {
-		summary.ClusterName = "OpenShift Cluster"
+	// Scan the Summary section for the table
+	inTable := false
+	inKey := true // Assume we start in the key/legend section
+
+	for i := summaryStartIndex; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+
+		// End of Summary section
+		if line != "" && line[0] == '=' && !strings.Contains(line, "= Summary") {
+			break
+		}
+
+		// Check for table start
+		if strings.Contains(line, "|===") {
+			if !inTable {
+				inTable = true
+				continue
+			} else {
+				// End of table
+				inTable = false
+				break
+			}
+		}
+
+		if !inTable {
+			continue
+		}
+
+		// Check if we're past the key/legend section
+		if inKey && strings.Contains(line, "*Category*") &&
+			strings.Contains(line, "*Item Evaluated*") {
+			inKey = false
+			continue
+		}
+
+		// Skip the key/legend rows
+		if inKey || line == "" {
+			continue
+		}
+
+		// Process table rows for status
+		if strings.Contains(line, "{set:cellbgcolor:#FF0000}") &&
+			!strings.Contains(line, "Indicates Changes Required") {
+			// Get the item name and content
+			var itemContent string
+
+			// Look for name in previous or next lines
+			for j := i - 5; j <= i+5 && j < len(lines); j++ {
+				if j >= 0 && strings.Contains(lines[j], "<<") && strings.Contains(lines[j], ">>") {
+					nameMatch := regexp.MustCompile(`<<([^>]+)>>`).FindStringSubmatch(lines[j])
+					if len(nameMatch) > 1 {
+						itemName := nameMatch[1]
+
+						// Look for observation text
+						for k := j + 1; k < i; k++ {
+							obsLine := strings.TrimSpace(lines[k])
+							if obsLine != "" && !strings.Contains(obsLine, "set:cellbgcolor") {
+								if strings.HasPrefix(obsLine, "|") {
+									obsLine = strings.TrimSpace(obsLine[1:])
+								}
+								itemContent = fmt.Sprintf("%s: %s", itemName, obsLine)
+								break
+							}
+						}
+
+						if itemContent == "" {
+							itemContent = itemName
+						}
+						break
+					}
+				}
+			}
+
+			if itemContent == "" {
+				itemContent = fmt.Sprintf("Required Item %d", len(requiredItems)+1)
+			}
+
+			requiredItems = append(requiredItems, itemContent)
+		} else if strings.Contains(line, "{set:cellbgcolor:#FEFE20}") &&
+			!strings.Contains(line, "Indicates Changes Recommended") {
+			// Similar logic for recommended items
+			var itemContent string
+
+			// Look for name in previous or next lines
+			for j := i - 5; j <= i+5 && j < len(lines); j++ {
+				if j >= 0 && strings.Contains(lines[j], "<<") && strings.Contains(lines[j], ">>") {
+					nameMatch := regexp.MustCompile(`<<([^>]+)>>`).FindStringSubmatch(lines[j])
+					if len(nameMatch) > 1 {
+						itemName := nameMatch[1]
+
+						// Look for observation text
+						for k := j + 1; k < i; k++ {
+							obsLine := strings.TrimSpace(lines[k])
+							if obsLine != "" && !strings.Contains(obsLine, "set:cellbgcolor") {
+								if strings.HasPrefix(obsLine, "|") {
+									obsLine = strings.TrimSpace(obsLine[1:])
+								}
+								itemContent = fmt.Sprintf("%s: %s", itemName, obsLine)
+								break
+							}
+						}
+
+						if itemContent == "" {
+							itemContent = itemName
+						}
+						break
+					}
+				}
+			}
+
+			if itemContent == "" {
+				itemContent = fmt.Sprintf("Recommended Item %d", len(recommendedItems)+1)
+			}
+
+			recommendedItems = append(recommendedItems, itemContent)
+		} else if strings.Contains(line, "{set:cellbgcolor:#80E5FF}") &&
+			!strings.Contains(line, "No advise given") {
+			// Similar logic for advisory items
+			var itemContent string
+
+			// Look for name in previous or next lines
+			for j := i - 5; j <= i+5 && j < len(lines); j++ {
+				if j >= 0 && strings.Contains(lines[j], "<<") && strings.Contains(lines[j], ">>") {
+					nameMatch := regexp.MustCompile(`<<([^>]+)>>`).FindStringSubmatch(lines[j])
+					if len(nameMatch) > 1 {
+						itemName := nameMatch[1]
+
+						// Look for observation text
+						for k := j + 1; k < i; k++ {
+							obsLine := strings.TrimSpace(lines[k])
+							if obsLine != "" && !strings.Contains(obsLine, "set:cellbgcolor") {
+								if strings.HasPrefix(obsLine, "|") {
+									obsLine = strings.TrimSpace(obsLine[1:])
+								}
+								itemContent = fmt.Sprintf("%s: %s", itemName, obsLine)
+								break
+							}
+						}
+
+						if itemContent == "" {
+							itemContent = itemName
+						}
+						break
+					}
+				}
+			}
+
+			if itemContent == "" {
+				itemContent = fmt.Sprintf("Advisory Item %d", len(advisoryItems)+1)
+			}
+
+			advisoryItems = append(advisoryItems, itemContent)
+		} else if strings.Contains(line, "{set:cellbgcolor:#00FF00}") &&
+			!strings.Contains(line, "No change required") {
+			noChangeCount++
+		} else if strings.Contains(line, "{set:cellbgcolor:#A6B9BF}") &&
+			!strings.Contains(line, "No advise given") {
+			notApplicableCount++
+		}
 	}
-	if summary.CustomerName == "" {
-		summary.CustomerName = "Your Company"
-	}
+
+	// Fill in the rest of the summary data
+	summary.ClusterName = extractClusterName(lines)
+	summary.CustomerName = extractCustomerName(lines)
+	summary.OverallScore = extractOverallScore(lines)
+	summary.ScoreInfra = extractCategoryScore(lines, "Infrastructure Setup")
+	summary.ScoreGovernance = extractCategoryScore(lines, "Policy Governance")
+	summary.ScoreCompliance = extractCategoryScore(lines, "Compliance Benchmarking")
+	summary.ScoreMonitoring = extractCategoryScore(lines, "Central Monitoring")
+	summary.ScoreBuildSecurity = extractCategoryScore(lines, "Build/Deploy Security")
+
+	// Get or generate category descriptions
+	summary.InfraDescription = extractCategoryDescription(lines, "Infrastructure Setup")
+	summary.GovernanceDescription = extractCategoryDescription(lines, "Policy Governance")
+	summary.ComplianceDescription = extractCategoryDescription(lines, "Compliance Benchmarking")
+	summary.MonitoringDescription = extractCategoryDescription(lines, "Central Monitoring")
+	summary.BuildSecurityDescription = extractCategoryDescription(lines, "Build/Deploy Security")
+
+	// Set the action items
+	summary.ItemsRequired = requiredItems
+	summary.ItemsRecommended = recommendedItems
+	summary.ItemsAdvisory = advisoryItems
+	summary.NoChangeCount = noChangeCount
+
+	return summary, nil
 }
 
-// validateCategoryScore ensures a category score is within valid range with a fallback
-func validateCategoryScore(score *int) {
-	if *score < 0 {
-		*score = 0
-	} else if *score > 100 {
-		*score = 100
-	} else if *score == 0 {
-		*score = 75 // Default fallback if not found
+// Helper functions for parsing AsciiDoc files
+
+// extractClusterName extracts the cluster name from the document
+func extractClusterName(lines []string) string {
+	for _, line := range lines {
+		if strings.Contains(line, "cluster") {
+			re := regexp.MustCompile(`['"]([^'"]+)['"]|cluster\s+([a-zA-Z0-9_-]+)`)
+			matches := re.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				if matches[1] != "" {
+					return matches[1]
+				}
+				if len(matches) > 2 && matches[2] != "" {
+					return matches[2]
+				}
+			}
+		}
 	}
+	return ""
+}
+
+// extractCustomerName extracts the customer name from the document
+func extractCustomerName(lines []string) string {
+	for _, line := range lines {
+		if strings.Contains(line, "conducted") && strings.Contains(line, "health check") {
+			re := regexp.MustCompile(`conducted.*?([A-Za-z0-9_\s]+)'s`)
+			matches := re.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				return strings.TrimSpace(matches[1])
+			}
+		}
+	}
+	return ""
+}
+
+// extractOverallScore extracts the overall score from the document
+func extractOverallScore(lines []string) float64 {
+	var score float64
+
+	// Look for explicit score notation
+	scorePattern := regexp.MustCompile(`Overall\s+Cluster\s+Health:\s+(\d+\.?\d*)%`)
+	for _, line := range lines {
+		matches := scorePattern.FindStringSubmatch(line)
+		if len(matches) > 1 {
+			fmt.Sscanf(matches[1], "%f", &score)
+			return score
+		}
+	}
+
+	// Check for alternative score format
+	altScorePattern := regexp.MustCompile(`Overall Health Score.*?(\d+\.?\d*)%`)
+	for _, line := range lines {
+		matches := altScorePattern.FindStringSubmatch(line)
+		if len(matches) > 1 {
+			fmt.Sscanf(matches[1], "%f", &score)
+			return score
+		}
+	}
+
+	return score
+}
+
+// extractCategoryScore extracts the score for a specific category
+func extractCategoryScore(lines []string, categoryName string) int {
+	var score int
+
+	// Look for category score in various formats
+	scorePattern := regexp.MustCompile(fmt.Sprintf(`\*%s\*:\s+(\d+)%%`, regexp.QuoteMeta(categoryName)))
+	for _, line := range lines {
+		matches := scorePattern.FindStringSubmatch(line)
+		if len(matches) > 1 {
+			fmt.Sscanf(matches[1], "%d", &score)
+			return score
+		}
+	}
+
+	// Try partial matching if exact match not found
+	for _, line := range lines {
+		if strings.Contains(strings.ToLower(line), strings.ToLower(categoryName)) && strings.Contains(line, "%") {
+			re := regexp.MustCompile(`(\d+)%`)
+			matches := re.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				fmt.Sscanf(matches[1], "%d", &score)
+				return score
+			}
+		}
+	}
+
+	return score
+}
+
+// extractCategoryDescription extracts or generates a description for a category
+func extractCategoryDescription(lines []string, categoryName string) string {
+	// Try to find an actual description in the document
+	for i, line := range lines {
+		if strings.Contains(line, categoryName) {
+			// Look for description in next few lines
+			for j := i + 1; j < i+10 && j < len(lines); j++ {
+				if j < len(lines) && lines[j] != "" &&
+					!strings.HasPrefix(lines[j], "*") &&
+					!strings.HasPrefix(lines[j], "#") &&
+					!strings.Contains(lines[j], "%") {
+					return strings.TrimSpace(lines[j])
+				}
+			}
+		}
+	}
+
+	return ""
 }
 
 // Start starts the HTTP server
