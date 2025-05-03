@@ -3,7 +3,7 @@
 // Get color based on score value - adjusted to match the orange color in your screenshot
 export const getScoreColor = (score) => {
     const numericScore = parseFloat(score);
-    if (isNaN(numericScore)) return '#EF4444'; // Default to red for invalid scores
+    if (isNaN(numericScore) || numericScore <= 0) return '#EF4444'; // Default to red for invalid or zero scores
 
     if (numericScore >= 90) return '#10B981'; // Excellent - Green
     if (numericScore >= 60) return '#F97316'; // Good/Fair - Orange (matches your screenshot)
@@ -14,7 +14,7 @@ export const getScoreColor = (score) => {
 // Get rating text based on score value
 export const getScoreRating = (score) => {
     const numericScore = parseFloat(score);
-    if (isNaN(numericScore)) return 'Unknown';
+    if (isNaN(numericScore) || numericScore <= 0) return 'Critical';
 
     if (numericScore >= 90) return 'Excellent';
     if (numericScore >= 75) return 'Good';
@@ -26,7 +26,7 @@ export const getScoreRating = (score) => {
 // Get health assessment text based on score value
 export const getHealthAssessment = (score) => {
     const numericScore = parseFloat(score);
-    if (isNaN(numericScore)) return 'Unable to assess cluster health.';
+    if (isNaN(numericScore) || numericScore <= 0) return 'Your cluster requires urgent attention to critical configuration issues.';
 
     if (numericScore >= 90) return 'Your cluster is highly optimized and follows all best practices.';
     if (numericScore >= 75) return 'Your cluster is well configured with only minor improvements needed.';
@@ -38,7 +38,7 @@ export const getHealthAssessment = (score) => {
 // Format score to ensure it's displayed correctly
 export const formatScore = (score) => {
     const numericScore = parseFloat(score);
-    if (isNaN(numericScore)) return '0';
+    if (isNaN(numericScore) || numericScore <= 0) return '0';
 
     // Return as integer if it's a whole number, otherwise with one decimal place
     return Number.isInteger(numericScore)
@@ -50,6 +50,19 @@ export const formatScore = (score) => {
 export const calculateOverallScore = (reportData) => {
     if (!reportData) return 75;
 
+    // Make sure all category scores are valid numbers
+    const infraScore = parseInt(reportData.scoreInfra, 10) || 0;
+    const governanceScore = parseInt(reportData.scoreGovernance, 10) || 0;
+    const complianceScore = parseInt(reportData.scoreCompliance, 10) || 0;
+    const monitoringScore = parseInt(reportData.scoreMonitoring, 10) || 0;
+    const buildSecurityScore = parseInt(reportData.scoreBuildSecurity, 10) || 0;
+
+    // If all category scores are zero, return the provided overall score or a default
+    if (infraScore === 0 && governanceScore === 0 && complianceScore === 0 &&
+        monitoringScore === 0 && buildSecurityScore === 0) {
+        return parseFloat(reportData.overallScore) || 75;
+    }
+
     const weights = {
         infra: 0.25,
         governance: 0.2,
@@ -59,11 +72,11 @@ export const calculateOverallScore = (reportData) => {
     };
 
     const weightedSum =
-        (reportData.scoreInfra || 75) * weights.infra +
-        (reportData.scoreGovernance || 75) * weights.governance +
-        (reportData.scoreCompliance || 75) * weights.compliance +
-        (reportData.scoreMonitoring || 75) * weights.monitoring +
-        (reportData.scoreBuildSecurity || 75) * weights.buildSecurity;
+        infraScore * weights.infra +
+        governanceScore * weights.governance +
+        complianceScore * weights.compliance +
+        monitoringScore * weights.monitoring +
+        buildSecurityScore * weights.buildSecurity;
 
     return parseFloat(weightedSum.toFixed(1));
 };
@@ -88,7 +101,7 @@ export const getSeverityLevel = (type) => {
 export const generateSummaryStatement = (reportData) => {
     if (!reportData) return '';
 
-    const score = formatScore(reportData.overallScore);
+    const score = formatScore(reportData.overallScore || 0);
     const rating = getScoreRating(score);
     const requiredCount = reportData.itemsRequired?.length || 0;
     const recommendedCount = reportData.itemsRecommended?.length || 0;

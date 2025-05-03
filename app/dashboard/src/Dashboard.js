@@ -3,14 +3,17 @@ import { getScoreColor, getScoreRating } from './utils/scoreUtils';
 
 // Circular progress component for overall health
 const CircularProgress = ({ value }) => {
-    const percentage = value || 0;
+    // Make sure value is a number and default to 0 if not
+    const percentage = parseFloat(value) || 0;
+    const rating = getScoreRating(percentage);
+    const color = getScoreColor(percentage);
+
+    // Calculate circle properties
     const radius = 70;
     const stroke = 14;
     const normalizedRadius = radius - stroke / 2;
     const circumference = normalizedRadius * 2 * Math.PI;
     const strokeDashoffset = circumference - (percentage / 100) * circumference;
-    const rating = getScoreRating(percentage);
-    const color = getScoreColor(percentage);
 
     return (
         <div className="relative flex items-center justify-center my-8">
@@ -36,7 +39,7 @@ const CircularProgress = ({ value }) => {
                 />
             </svg>
             <div className="absolute flex flex-col items-center justify-center">
-                <span className="text-3xl font-bold">{percentage}%</span>
+                <span className="text-3xl font-bold">{Math.round(percentage)}%</span>
                 <span className="text-sm text-gray-500">{rating}</span>
             </div>
         </div>
@@ -45,8 +48,10 @@ const CircularProgress = ({ value }) => {
 
 // Progress bar component for category scores
 const ProgressBar = ({ name, score }) => {
-    const safeScore = score || 0;
+    // Make sure score is a number and default to 0 if not
+    const safeScore = parseInt(score, 10) || 0;
     const color = getScoreColor(safeScore);
+
     return (
         <div className="mb-6">
             <div className="flex justify-between mb-2">
@@ -54,7 +59,13 @@ const ProgressBar = ({ name, score }) => {
                 <span className="text-sm font-medium text-gray-700">{safeScore}%</span>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2.5">
-                <div className="h-2.5 rounded-full" style={{ width: `${safeScore}%`, backgroundColor: color }}></div>
+                <div
+                    className="h-2.5 rounded-full"
+                    style={{
+                        width: `${safeScore}%`,
+                        backgroundColor: color
+                    }}
+                ></div>
             </div>
         </div>
     );

@@ -2,7 +2,8 @@ import React from 'react';
 import { getScoreColor, getScoreRating } from '../utils/scoreUtils';
 
 const CircularProgress = ({ value, size = 'large' }) => {
-    const percentage = Math.min(Math.max(value, 0), 100);
+    // Make sure value is a number and default to 0 if not
+    const percentage = parseFloat(value) || 0;
     const rating = getScoreRating(percentage);
     const color = getScoreColor(percentage);
 
@@ -41,7 +42,7 @@ const CircularProgress = ({ value, size = 'large' }) => {
             </svg>
             <div className="absolute flex flex-col items-center justify-center">
                 <span className={`font-bold ${size === 'large' ? 'text-3xl' : 'text-xl'}`}>
-                    {percentage}%
+                    {Math.round(percentage)}%
                 </span>
                 <span className={`text-gray-600 ${size === 'large' ? 'text-lg' : 'text-sm'}`}>
                     {rating}
@@ -52,18 +53,20 @@ const CircularProgress = ({ value, size = 'large' }) => {
 };
 
 const CategoryBar = ({ name, score }) => {
-    const color = getScoreColor(score);
+    // Make sure score is a number and default to 0 if not
+    const safeScore = parseInt(score, 10) || 0;
+    const color = getScoreColor(safeScore);
 
     return (
         <div className="mb-6">
             <div className="flex justify-between mb-1">
                 <span className="text-gray-800">{name}</span>
-                <span className="font-medium">{score}%</span>
+                <span className="font-medium">{safeScore}%</span>
             </div>
             <div className="h-3 bg-gray-200 rounded-full">
                 <div
                     className="h-3 rounded-full"
-                    style={{ width: `${score}%`, backgroundColor: color }}
+                    style={{ width: `${safeScore}%`, backgroundColor: color }}
                 />
             </div>
         </div>
