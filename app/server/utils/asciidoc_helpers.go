@@ -85,9 +85,39 @@ func ExtractOverallScore(lines []string) float64 {
 	return CalculateScoreFromStatusCounts(lines)
 }
 
+// ItemsByCategory represents items grouped by category and status
+type ItemsByCategory struct {
+	Required      map[string]int
+	Recommended   map[string]int
+	Advisory      map[string]int
+	NoChange      map[string]int
+	NotApplicable map[string]int
+}
+
 // CalculateScoreFromStatusCounts calculates score based on status counts in Summary section
 func CalculateScoreFromStatusCounts(lines []string) float64 {
-	required, recommended, advisory, noChange, notApplicable := 0, 0, 0, 0, 0
+	required, recommended, advisory, noChange, _ := CountAllStatusItems(lines)
+
+	// Calculate score if we have valid items
+	totalItems := required + recommended + advisory + noChange
+	if totalItems == 0 {
+		return 0.0
+	}
+
+	// Weight calculation based on status counts
+	// Required = 0%, Recommended = 50%, Advisory = 80%, No Change = 100%
+	weightedSum := float64(noChange*100 + advisory*80 + recommended*50)
+	return weightedSum / float64(totalItems)
+}
+
+// CountAllStatusItems counts items by their color status in the Summary section
+// Returns counts for required, recommended, advisory, noChange, and notApplicable
+func CountAllStatusItems(lines []string) (int, int, int, int, int) {
+	required := 0
+	recommended := 0
+	advisory := 0
+	noChange := 0
+	notApplicable := 0
 
 	// Find summary section boundaries
 	summaryStartIndex := -1
@@ -101,7 +131,7 @@ func CalculateScoreFromStatusCounts(lines []string) float64 {
 	}
 
 	if summaryStartIndex == -1 {
-		return 0.0 // Can't find summary section
+		return 0, 0, 0, 0, 0 // Can't find summary section
 	}
 
 	// Find end of summary (next section or end of file)
@@ -117,10 +147,24 @@ func CalculateScoreFromStatusCounts(lines []string) float64 {
 		summaryEndIndex = len(lines) // Use end of file if no next section
 	}
 
-	// Process summary section for color codes
+	// Process the summary section for color codes
+	inItem := false
 	inTable := false
+
 	for i := summaryStartIndex; i < summaryEndIndex; i++ {
 		line := lines[i]
+
+		// Start of an item block (if using item blocks)
+		if strings.Contains(line, "// ------------------------ITEM START") {
+			inItem = true
+			continue
+		}
+
+		// End of an item block
+		if strings.Contains(line, "// ------------------------ITEM END") {
+			inItem = false
+			continue
+		}
 
 		// Detect start of table
 		if strings.Contains(line, "|===") && !inTable {
@@ -130,6 +174,7 @@ func CalculateScoreFromStatusCounts(lines []string) float64 {
 
 		// Detect end of table
 		if strings.Contains(line, "|===") && inTable {
+			inTable = false
 			break
 		}
 
@@ -143,8 +188,8 @@ func CalculateScoreFromStatusCounts(lines []string) float64 {
 			continue
 		}
 
-		// Count by color codes
-		if inTable {
+		// Count by color codes - for table cells and items
+		if (inTable || inItem) && !strings.Contains(line, "Description") {
 			if strings.Contains(line, "{set:cellbgcolor:#FF0000}") {
 				required++
 			} else if strings.Contains(line, "{set:cellbgcolor:#FEFE20}") {
@@ -159,20 +204,19 @@ func CalculateScoreFromStatusCounts(lines []string) float64 {
 		}
 	}
 
-	// Calculate score if we have valid items
-	totalItems := required + recommended + advisory + noChange
-	if totalItems == 0 {
-		return 0.0
-	}
-
-	// Weight calculation based on status counts
-	// Required = 0%, Recommended = 50%, Advisory = 80%, No Change = 100%
-	weightedSum := float64(noChange*100 + advisory*80 + recommended*50)
-	return weightedSum / float64(totalItems)
+	return required, recommended, advisory, noChange, notApplicable
 }
 
-// CountStatusByColor counts items by their color status in the Summary section only
-func CountStatusByColor(lines []string) (required, recommended, advisory int) {
+// CountStatusByCategory counts items by category and status
+func CountStatusByCategory(lines []string) *ItemsByCategory {
+	result := &ItemsByCategory{
+		Required:      make(map[string]int),
+		Recommended:   make(map[string]int),
+		Advisory:      make(map[string]int),
+		NoChange:      make(map[string]int),
+		NotApplicable: make(map[string]int),
+	}
+
 	// Find summary section boundaries
 	summaryStartIndex := -1
 	summaryEndIndex := -1
@@ -185,7 +229,7 @@ func CountStatusByColor(lines []string) (required, recommended, advisory int) {
 	}
 
 	if summaryStartIndex == -1 {
-		return 0, 0, 0 // Can't find summary section
+		return result // Can't find summary section
 	}
 
 	// Find end of summary (next section or end of file)
@@ -201,37 +245,96 @@ func CountStatusByColor(lines []string) (required, recommended, advisory int) {
 		summaryEndIndex = len(lines) // Use end of file if no next section
 	}
 
-	// Process just the summary section
+	// Process the summary section
+	var currentCategory string
+	var currentStatus string
+	inTable := false
+
 	for i := summaryStartIndex; i < summaryEndIndex; i++ {
-		line := lines[i]
+		line := strings.TrimSpace(lines[i])
 
-		// Skip the legend lines
-		if strings.Contains(line, "Changes Required") && strings.Contains(line, "Description") {
-			continue
-		}
-		if strings.Contains(line, "Changes Recommended") && strings.Contains(line, "Description") {
-			continue
-		}
-		if strings.Contains(line, "Advisory") && strings.Contains(line, "Description") {
+		// Detect start/end of table
+		if strings.Contains(line, "|===") {
+			inTable = !inTable
 			continue
 		}
 
-		// Count actual items
-		if strings.Contains(line, "{set:cellbgcolor:#FF0000}") &&
-			!strings.Contains(line, "Indicates Changes Required") {
-			required++
+		if !inTable {
+			continue
 		}
-		if strings.Contains(line, "{set:cellbgcolor:#FEFE20}") &&
-			!strings.Contains(line, "Indicates Changes Recommended") {
-			recommended++
+
+		// Extract category
+		if strings.HasPrefix(line, "|") && !strings.Contains(line, "cellbgcolor") {
+			currentCategory = strings.TrimSpace(strings.TrimPrefix(line, "|"))
+			continue
 		}
-		if strings.Contains(line, "{set:cellbgcolor:#80E5FF}") &&
-			!strings.Contains(line, "No change required or recommended") {
-			advisory++
+
+		// Determine status by color code
+		if strings.Contains(line, "{set:cellbgcolor:#FF0000}") {
+			currentStatus = "required"
+		} else if strings.Contains(line, "{set:cellbgcolor:#FEFE20}") {
+			currentStatus = "recommended"
+		} else if strings.Contains(line, "{set:cellbgcolor:#80E5FF}") {
+			currentStatus = "advisory"
+		} else if strings.Contains(line, "{set:cellbgcolor:#00FF00}") {
+			currentStatus = "nochange"
+		} else if strings.Contains(line, "{set:cellbgcolor:#A6B9BF}") {
+			currentStatus = "notapplicable"
+		}
+
+		// Only count if we have both category and status
+		if currentCategory != "" && currentStatus != "" {
+			// Skip header/legend rows
+			if strings.Contains(line, "Indicates Changes Required") ||
+				strings.Contains(line, "Indicates Changes Recommended") ||
+				strings.Contains(line, "No advise given") ||
+				strings.Contains(line, "No change required") ||
+				strings.Contains(line, "Not yet evaluated") {
+				currentStatus = ""
+				continue
+			}
+
+			// Count item by category and status
+			switch currentStatus {
+			case "required":
+				result.Required[currentCategory]++
+			case "recommended":
+				result.Recommended[currentCategory]++
+			case "advisory":
+				result.Advisory[currentCategory]++
+			case "nochange":
+				result.NoChange[currentCategory]++
+			case "notapplicable":
+				result.NotApplicable[currentCategory]++
+			}
+
+			// Reset status to avoid double counting
+			currentStatus = ""
 		}
 	}
 
-	return required, recommended, advisory
+	return result
+}
+
+// CalculateCategoryScore calculates score for a given category using item counts
+func CalculateCategoryScore(categoryItems map[string]int, categoryName string) int {
+	required := categoryItems["required"]
+	recommended := categoryItems["recommended"]
+	advisory := categoryItems["advisory"]
+	noChange := categoryItems["nochange"]
+
+	// Calculate total items (excluding Not Applicable)
+	totalItems := required + recommended + advisory + noChange
+	if totalItems == 0 {
+		return 0
+	}
+
+	// Weight calculation:
+	// Required = 0%, Recommended = 50%, Advisory = 80%, No Change = 100%
+	weightedSum := float64(noChange*100 + advisory*80 + recommended*50)
+	score := int(weightedSum / float64(totalItems))
+
+	return score
 }
 
 // ExtractCategoryScore extracts the score for a specific category
@@ -654,4 +757,69 @@ func ExtractAdvisoryActions(lines []string) []string {
 	}
 
 	return advisoryItems
+}
+
+// CountNoChangeItems counts items marked as "No Change" in the Summary section
+func CountNoChangeItems(lines []string) int {
+	count := 0
+
+	// Find summary section boundaries
+	summaryStartIndex := -1
+	summaryEndIndex := -1
+
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "= Summary" {
+			summaryStartIndex = i
+			break
+		}
+	}
+
+	if summaryStartIndex == -1 {
+		return count // Summary not found
+	}
+
+	// Find end of summary
+	for i := summaryStartIndex + 1; i < len(lines); i++ {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "=") &&
+			!strings.Contains(lines[i], "= Summary") {
+			summaryEndIndex = i
+			break
+		}
+	}
+
+	if summaryEndIndex == -1 {
+		summaryEndIndex = len(lines)
+	}
+
+	// Process summary section
+	inItem := false
+	inTable := false
+
+	for i := summaryStartIndex; i < summaryEndIndex; i++ {
+		line := lines[i]
+
+		// Check for item blocks
+		if strings.Contains(line, "// ------------------------ITEM START") {
+			inItem = true
+			continue
+		}
+		if strings.Contains(line, "// ------------------------ITEM END") {
+			inItem = false
+			continue
+		}
+
+		// Check for table
+		if strings.Contains(line, "|===") {
+			inTable = !inTable
+			continue
+		}
+
+		// Count "No Change" items
+		if (inTable || inItem) && strings.Contains(line, "{set:cellbgcolor:#00FF00}") &&
+			!strings.Contains(line, "No change required") {
+			count++
+		}
+	}
+
+	return count
 }

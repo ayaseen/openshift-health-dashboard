@@ -1,5 +1,5 @@
 import React from 'react';
-import { getScoreColor, getScoreRating } from '../utils/scoreUtils';
+import { getScoreColor, getScoreRating, getSeverityLevel } from '../utils/scoreUtils';
 
 const CircularProgress = ({ value, size = 'large' }) => {
     // Make sure value is a number and default to 0 if not
@@ -89,10 +89,15 @@ const OverviewTab = ({ reportData }) => {
     const requiredCount = reportData.itemsRequired?.length || 0;
     const recommendedCount = reportData.itemsRecommended?.length || 0;
     const advisoryCount = reportData.itemsAdvisory?.length || 0;
+    const noChangeCount = reportData.noChangeCount || 0;
+    const notApplicableCount = reportData.notApplicableCount || 0;
 
-    // Calculate "No Change" count based on total items and issues
-    // This is just an estimate; you may want to adjust the logic based on your data
-    const noChangeCount = 15; // Default value to match the image
+    // Get severity style for each type
+    const requiredStyle = getSeverityLevel('required');
+    const recommendedStyle = getSeverityLevel('recommended');
+    const advisoryStyle = getSeverityLevel('advisory');
+    const noChangeStyle = getSeverityLevel('no change');
+    const notApplicableStyle = getSeverityLevel('not applicable');
 
     return (
         <div className="space-y-6">
@@ -119,32 +124,49 @@ const OverviewTab = ({ reportData }) => {
             {/* Actions Required Section */}
             <div className="bg-gray-50 p-6 rounded-lg shadow-sm">
                 <h2 className="text-xl font-semibold mb-6">Actions Required</h2>
-                <div className="grid grid-cols-4 gap-4">
+                <div className="grid grid-cols-5 gap-4">
                     <ActionBox
                         count={requiredCount}
                         type="Required"
-                        color="text-red-700"
-                        bgColor="bg-red-50 border-red-100"
+                        color={requiredStyle.color}
+                        bgColor={`${requiredStyle.bgColor} ${requiredStyle.borderColor}`}
                     />
                     <ActionBox
                         count={recommendedCount}
                         type="Recommended"
-                        color="text-yellow-700"
-                        bgColor="bg-yellow-50 border-yellow-100"
+                        color={recommendedStyle.color}
+                        bgColor={`${recommendedStyle.bgColor} ${recommendedStyle.borderColor}`}
                     />
                     <ActionBox
                         count={advisoryCount}
                         type="Advisory"
-                        color="text-blue-700"
-                        bgColor="bg-blue-50 border-blue-100"
+                        color={advisoryStyle.color}
+                        bgColor={`${advisoryStyle.bgColor} ${advisoryStyle.borderColor}`}
                     />
                     <ActionBox
                         count={noChangeCount}
                         type="No Change"
-                        color="text-green-700"
-                        bgColor="bg-green-50 border-green-100"
+                        color={noChangeStyle.color}
+                        bgColor={`${noChangeStyle.bgColor} ${noChangeStyle.borderColor}`}
+                    />
+                    <ActionBox
+                        count={notApplicableCount}
+                        type="Not Applicable"
+                        color={notApplicableStyle.color}
+                        bgColor={`${notApplicableStyle.bgColor} ${notApplicableStyle.borderColor}`}
                     />
                 </div>
+            </div>
+
+            {/* Summary Statistics Section */}
+            <div className="bg-gray-50 p-6 rounded-lg shadow-sm">
+                <h2 className="text-xl font-semibold mb-4">Summary Statistics</h2>
+                <ul className="space-y-2 text-gray-700">
+                    <li><span className="font-medium">Total Items:</span> {requiredCount + recommendedCount + advisoryCount + noChangeCount + notApplicableCount}</li>
+                    <li><span className="font-medium">Issues Requiring Attention:</span> {requiredCount + recommendedCount}</li>
+                    <li><span className="font-medium">Issue Rate:</span> {Math.round((requiredCount + recommendedCount) / (requiredCount + recommendedCount + advisoryCount + noChangeCount) * 100)}%</li>
+                    <li><span className="font-medium">Critical Issue Rate:</span> {requiredCount > 0 ? Math.round(requiredCount / (requiredCount + recommendedCount + advisoryCount + noChangeCount) * 100) : 0}%</li>
+                </ul>
             </div>
         </div>
     );

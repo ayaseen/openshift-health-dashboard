@@ -28,46 +28,95 @@ func ParseAsciiDocExecutiveSummary(filePath string) (*types.ReportSummary, error
 
 	// Initialize the report summary
 	summary := &types.ReportSummary{
-		ItemsRequired:    []string{},
-		ItemsRecommended: []string{},
-		ItemsAdvisory:    []string{},
-		NoChangeCount:    0,
+		ItemsRequired:      []string{},
+		ItemsRecommended:   []string{},
+		ItemsAdvisory:      []string{},
+		NoChangeCount:      0,
+		NotApplicableCount: 0,
 	}
 
 	// Extract cluster and customer information
 	summary.ClusterName = ExtractClusterName(lines)
 	summary.CustomerName = ExtractCustomerName(lines)
 
-	// Extract scores - with fallbacks
-	summary.OverallScore = ExtractOverallScore(lines)
-	if summary.OverallScore == 0 {
-		// Try harder to find the overall score or calculate it
-		summary.OverallScore = calculateFallbackScore(lines)
+	// Count items by status and category
+	required, recommended, advisory, noChange, notApplicable := CountAllStatusItems(lines)
+
+	// Set item counts
+	summary.NoChangeCount = noChange
+	summary.NotApplicableCount = notApplicable
+
+	// Calculate overall score - exclude Not Applicable items from the calculation
+	totalValidItems := required + recommended + advisory + noChange
+	if totalValidItems > 0 {
+		weightedSum := float64(noChange*100 + advisory*80 + recommended*50)
+		summary.OverallScore = weightedSum / float64(totalValidItems)
+	} else {
+		summary.OverallScore = 0
 	}
 
-	summary.ScoreInfra = ExtractCategoryScore(lines, "Infrastructure Setup")
+	// Calculate category scores
+	categoryItems := CountStatusByCategory(lines)
+
+	// Set category scores based on actual item counts by category
+	// Infrastructure Setup
+	infraItems := make(map[string]int)
+	infraItems["required"] = categoryItemCount(categoryItems.Required, "Cluster Config")
+	infraItems["recommended"] = categoryItemCount(categoryItems.Recommended, "Cluster Config")
+	infraItems["advisory"] = categoryItemCount(categoryItems.Advisory, "Cluster Config")
+	infraItems["nochange"] = categoryItemCount(categoryItems.NoChange, "Cluster Config")
+	summary.ScoreInfra = CalculateCategoryScore(infraItems, "Infrastructure Setup")
+
+	// Policy Governance
+	govItems := make(map[string]int)
+	govItems["required"] = categoryItemCount(categoryItems.Required, "Security")
+	govItems["recommended"] = categoryItemCount(categoryItems.Recommended, "Security")
+	govItems["advisory"] = categoryItemCount(categoryItems.Advisory, "Security")
+	govItems["nochange"] = categoryItemCount(categoryItems.NoChange, "Security")
+	summary.ScoreGovernance = CalculateCategoryScore(govItems, "Policy Governance")
+
+	// Compliance Benchmarking
+	compItems := make(map[string]int)
+	compItems["required"] = 0 // Direct compliance items are less common
+	compItems["recommended"] = categoryItemCount(categoryItems.Recommended, "Performance")
+	compItems["advisory"] = categoryItemCount(categoryItems.Advisory, "Performance")
+	compItems["nochange"] = categoryItemCount(categoryItems.NoChange, "Performance")
+	summary.ScoreCompliance = CalculateCategoryScore(compItems, "Compliance Benchmarking")
+
+	// Monitoring
+	monItems := make(map[string]int)
+	monItems["required"] = 0
+	monItems["recommended"] = categoryItemCount(categoryItems.Recommended, "Op-Ready")
+	monItems["advisory"] = categoryItemCount(categoryItems.Advisory, "Op-Ready")
+	monItems["nochange"] = categoryItemCount(categoryItems.NoChange, "Op-Ready")
+	summary.ScoreMonitoring = CalculateCategoryScore(monItems, "Monitoring")
+
+	// Build/Deploy Security
+	buildItems := make(map[string]int)
+	buildItems["required"] = 0
+	buildItems["recommended"] = categoryItemCount(categoryItems.Recommended, "Applications")
+	buildItems["advisory"] = categoryItemCount(categoryItems.Advisory, "Applications")
+	buildItems["nochange"] = categoryItemCount(categoryItems.NoChange, "Applications")
+	summary.ScoreBuildSecurity = CalculateCategoryScore(buildItems, "Build/Deploy Security")
+
+	// If calculated scores are still 0, try falling back to extracted scores
 	if summary.ScoreInfra == 0 {
-		summary.ScoreInfra = ExtractGeneralCategoryScore(lines, "infrastructure", "infra", "setup")
+		summary.ScoreInfra = ExtractCategoryScore(lines, "Infrastructure Setup")
 	}
-
-	summary.ScoreGovernance = ExtractCategoryScore(lines, "Policy Governance")
 	if summary.ScoreGovernance == 0 {
-		summary.ScoreGovernance = ExtractGeneralCategoryScore(lines, "governance", "policy", "policies")
+		summary.ScoreGovernance = ExtractCategoryScore(lines, "Policy Governance")
 	}
-
-	summary.ScoreCompliance = ExtractCategoryScore(lines, "Compliance Benchmarking")
 	if summary.ScoreCompliance == 0 {
-		summary.ScoreCompliance = ExtractGeneralCategoryScore(lines, "compliance", "benchmark", "benchmarking")
+		summary.ScoreCompliance = ExtractCategoryScore(lines, "Compliance Benchmarking")
 	}
-
-	summary.ScoreMonitoring = ExtractCategoryScore(lines, "Central Monitoring")
 	if summary.ScoreMonitoring == 0 {
-		summary.ScoreMonitoring = ExtractGeneralCategoryScore(lines, "monitoring", "metrics", "observe")
+		summary.ScoreMonitoring = ExtractCategoryScore(lines, "Central Monitoring")
+		if summary.ScoreMonitoring == 0 {
+			summary.ScoreMonitoring = ExtractCategoryScore(lines, "Monitoring")
+		}
 	}
-
-	summary.ScoreBuildSecurity = ExtractCategoryScore(lines, "Build/Deploy Security")
 	if summary.ScoreBuildSecurity == 0 {
-		summary.ScoreBuildSecurity = ExtractGeneralCategoryScore(lines, "build", "deploy", "security", "pipeline")
+		summary.ScoreBuildSecurity = ExtractCategoryScore(lines, "Build/Deploy Security")
 	}
 
 	// Extract or generate category descriptions
@@ -96,70 +145,53 @@ func ParseAsciiDocExecutiveSummary(filePath string) (*types.ReportSummary, error
 		summary.BuildSecurityDescription = GenerateDescription("Build/Deploy Security", summary.ScoreBuildSecurity)
 	}
 
-	// Extract items from the Summary section using multiple methods
-	requiredItems := ExtractRequiredChanges(lines)
-	if len(requiredItems) == 0 {
-		// Try alternative extraction methods
-		requiredItems = extractItemsByColorCode(lines, "#FF0000", "Required")
-	}
+	// Extract items from the Summary section
+	summary.ItemsRequired = ExtractRequiredChanges(lines)
+	summary.ItemsRecommended = ExtractRecommendedChanges(lines)
+	summary.ItemsAdvisory = ExtractAdvisoryActions(lines)
 
-	recommendedItems := ExtractRecommendedChanges(lines)
-	if len(recommendedItems) == 0 {
-		// Try alternative extraction methods
-		recommendedItems = extractItemsByColorCode(lines, "#FEFE20", "Recommended")
-	}
-
-	advisoryItems := ExtractAdvisoryActions(lines)
-	if len(advisoryItems) == 0 {
-		// Try alternative extraction methods
-		advisoryItems = extractItemsByColorCode(lines, "#80E5FF", "Advisory")
-	}
-
-	// Extract action items using the enhanced extraction method if previous methods didn't work
-	if len(requiredItems) == 0 && len(recommendedItems) == 0 && len(advisoryItems) == 0 {
-		log.Println("Standard extraction methods failed, using enhanced extraction...")
-		requiredItems, recommendedItems, advisoryItems = enhancedItemExtraction(lines)
-	}
-
-	// Count status items if we still don't have any items
-	if len(requiredItems) == 0 && len(recommendedItems) == 0 && len(advisoryItems) == 0 {
-		log.Println("No items found, counting status by color...")
-		reqCount, recCount, advCount := CountStatusByColor(lines)
-
-		// Create placeholder items based on counts
-		for i := 0; i < reqCount; i++ {
-			requiredItems = append(requiredItems, fmt.Sprintf("Required Item %d", i+1))
-		}
-
-		for i := 0; i < recCount; i++ {
-			recommendedItems = append(recommendedItems, fmt.Sprintf("Recommended Item %d", i+1))
-		}
-
-		for i := 0; i < advCount; i++ {
-			advisoryItems = append(advisoryItems, fmt.Sprintf("Advisory Item %d", i+1))
+	// If we have no items, use counts to create placeholder items
+	if len(summary.ItemsRequired) == 0 && required > 0 {
+		for i := 0; i < required; i++ {
+			summary.ItemsRequired = append(summary.ItemsRequired, fmt.Sprintf("Required Item %d", i+1))
 		}
 	}
 
-	// Calculate "No Change" count
-	noChangeCount := countNoChangeItems(lines)
-	if noChangeCount == 0 {
-		// If we can't find explicit "No Change" items, use a reasonable default
-		noChangeCount = 15
+	if len(summary.ItemsRecommended) == 0 && recommended > 0 {
+		for i := 0; i < recommended; i++ {
+			summary.ItemsRecommended = append(summary.ItemsRecommended, fmt.Sprintf("Recommended Item %d", i+1))
+		}
 	}
 
-	// Set the final values in the summary
-	summary.ItemsRequired = requiredItems
-	summary.ItemsRecommended = recommendedItems
-	summary.ItemsAdvisory = advisoryItems
-	summary.NoChangeCount = noChangeCount
+	if len(summary.ItemsAdvisory) == 0 && advisory > 0 {
+		for i := 0; i < advisory; i++ {
+			summary.ItemsAdvisory = append(summary.ItemsAdvisory, fmt.Sprintf("Advisory Item %d", i+1))
+		}
+	}
 
-	log.Printf("Extracted summary data - Overall Score: %.1f%%, Required: %d, Recommended: %d, Advisory: %d, NoChange: %d",
-		summary.OverallScore, len(summary.ItemsRequired), len(summary.ItemsRecommended), len(summary.ItemsAdvisory), summary.NoChangeCount)
+	// Count "No Change" items if needed
+	if summary.NoChangeCount == 0 {
+		summary.NoChangeCount = CountNoChangeItems(lines)
+	}
+
+	log.Printf("Extracted summary data - Overall Score: %.1f%%, Required: %d, Recommended: %d, Advisory: %d, NoChange: %d, NotApplicable: %d",
+		summary.OverallScore, len(summary.ItemsRequired), len(summary.ItemsRecommended), len(summary.ItemsAdvisory), summary.NoChangeCount, summary.NotApplicableCount)
 
 	return summary, nil
 }
 
-// Enhanced extraction of items from report
+// Helper function to count items for a specific category
+func categoryItemCount(items map[string]int, category string) int {
+	count := 0
+	for cat, c := range items {
+		if strings.Contains(cat, category) {
+			count += c
+		}
+	}
+	return count
+}
+
+// Enhanced item extraction from sections
 func enhancedItemExtraction(lines []string) ([]string, []string, []string) {
 	var requiredItems, recommendedItems, advisoryItems []string
 
@@ -169,8 +201,8 @@ func enhancedItemExtraction(lines []string) ([]string, []string, []string) {
 
 		// Look for indicators of evaluated items
 		if strings.Contains(line, "Changes Required:") ||
-           strings.Contains(line, "* Required Changes:") ||
-           strings.Contains(line, "== Changes Required") {
+			strings.Contains(line, "* Required Changes:") ||
+			strings.Contains(line, "== Changes Required") {
 			// Extract required items from this section
 			sectionItems := extractItemsFromSection(lines, i, 20, func(l string) bool {
 				return strings.HasPrefix(l, "* ") || strings.HasPrefix(l, "- ") || (strings.HasPrefix(l, "1. ") && !strings.Contains(strings.ToLower(l), "recommended"))
@@ -179,8 +211,8 @@ func enhancedItemExtraction(lines []string) ([]string, []string, []string) {
 		}
 
 		if strings.Contains(line, "Changes Recommended:") ||
-           strings.Contains(line, "* Recommended Changes:") ||
-           strings.Contains(line, "== Changes Recommended") {
+			strings.Contains(line, "* Recommended Changes:") ||
+			strings.Contains(line, "== Changes Recommended") {
 			// Extract recommended items from this section
 			sectionItems := extractItemsFromSection(lines, i, 20, func(l string) bool {
 				return strings.HasPrefix(l, "* ") || strings.HasPrefix(l, "- ") || (strings.HasPrefix(l, "1. ") && !strings.Contains(strings.ToLower(l), "required"))
@@ -189,55 +221,13 @@ func enhancedItemExtraction(lines []string) ([]string, []string, []string) {
 		}
 
 		if strings.Contains(line, "Advisory Actions:") ||
-           strings.Contains(line, "* Advisory:") ||
-           strings.Contains(line, "== Advisory") {
+			strings.Contains(line, "* Advisory:") ||
+			strings.Contains(line, "== Advisory") {
 			// Extract advisory items from this section
 			sectionItems := extractItemsFromSection(lines, i, 20, func(l string) bool {
 				return strings.HasPrefix(l, "* ") || strings.HasPrefix(l, "- ") || strings.HasPrefix(l, "1. ")
 			})
 			advisoryItems = append(advisoryItems, sectionItems...)
-		}
-	}
-
-	// Look for table-based items if we didn't find any list-based items
-	if len(requiredItems) == 0 && len(recommendedItems) == 0 && len(advisoryItems) == 0 {
-		inTable := false
-		currentItem := ""
-		itemStatus := ""
-
-		for _, line := range lines {
-			if strings.Contains(line, "|===") {
-				inTable = !inTable
-				continue
-			}
-
-			if inTable && strings.Contains(line, "|") {
-				if strings.Contains(line, "{set:cellbgcolor:#FF0000}") {
-					itemStatus = "required"
-				} else if strings.Contains(line, "{set:cellbgcolor:#FEFE20}") {
-					itemStatus = "recommended"
-				} else if strings.Contains(line, "{set:cellbgcolor:#80E5FF}") {
-					itemStatus = "advisory"
-				} else if !strings.Contains(line, "set:cellbgcolor") {
-					// This might be an item description
-					if line = strings.TrimSpace(strings.TrimPrefix(line, "|")); line != "" {
-						currentItem = line
-					}
-				}
-
-				if currentItem != "" && itemStatus != "" {
-					switch itemStatus {
-					case "required":
-						requiredItems = append(requiredItems, currentItem)
-					case "recommended":
-						recommendedItems = append(recommendedItems, currentItem)
-					case "advisory":
-						advisoryItems = append(advisoryItems, currentItem)
-					}
-					currentItem = ""
-					itemStatus = ""
-				}
-			}
 		}
 	}
 
@@ -359,15 +349,15 @@ func calculateFallbackScore(lines []string) float64 {
 		return totalScore / float64(categoryCount)
 	}
 
-	// Fallback based on status counts
-	required, recommended, advisory := CountStatusByColor(lines)
-	total := required + recommended + advisory
+	// Fallback based on status counts - exclude Not Applicable items
+	required, recommended, advisory, noChange, _ := CountAllStatusItems(lines)
+	total := required + recommended + advisory + noChange
 	if total == 0 {
 		return 75.0 // Default value if we can't calculate anything
 	}
 
-	// Weight calculation: Required=0%, Recommended=50%, Advisory=80%
-	weightedSum := float64(advisory*80 + recommended*50)
+	// Weight calculation: Required=0%, Recommended=50%, Advisory=80%, NoChange=100%
+	weightedSum := float64(noChange*100 + advisory*80 + recommended*50)
 	return weightedSum / float64(total)
 }
 
@@ -406,7 +396,7 @@ func extractItemsByColorCode(lines []string, colorCode string, itemType string) 
 			// Look for description in nearby lines
 			for j := max(0, i-5); j < min(i+5, len(lines)); j++ {
 				if j != i && !strings.Contains(lines[j], "cellbgcolor") &&
-                   strings.TrimSpace(lines[j]) != "" && strings.Contains(lines[j], "|") {
+					strings.TrimSpace(lines[j]) != "" && strings.Contains(lines[j], "|") {
 					desc := strings.TrimSpace(strings.TrimPrefix(lines[j], "|"))
 					if desc != "" && !strings.Contains(desc, "<<") && !strings.Contains(desc, ">>") {
 						itemDesc = desc
@@ -442,30 +432,4 @@ func max(a, b int) int {
 		return a
 	}
 	return b
-}
-
-// Count the number of "No Change" items
-func countNoChangeItems(lines []string) int {
-	count := 0
-	inTable := false
-
-	for _, line := range lines {
-		// Detect table boundaries
-		if strings.Contains(line, "|===") {
-			inTable = !inTable
-			continue
-		}
-
-		if !inTable {
-			continue
-		}
-
-		// Count cells with the "No Change" color code
-		if strings.Contains(line, "{set:cellbgcolor:#00FF00}") &&
-			!strings.Contains(line, "No change required") {
-			count++
-		}
-	}
-
-	return count
 }

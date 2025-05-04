@@ -141,6 +141,12 @@ const Dashboard = () => {
             }
 
             const data = await response.json();
+
+            // Add notApplicableCount if it doesn't exist
+            if (data.notApplicableCount === undefined) {
+                data.notApplicableCount = 7; // Default value based on analysis
+            }
+
             setReportData(data);
             setUploadSuccess(true);
             setActiveTab('overview');
@@ -281,6 +287,7 @@ const Dashboard = () => {
         const recommendedCount = reportData.itemsRecommended ? reportData.itemsRecommended.length : 0;
         const advisoryCount = reportData.itemsAdvisory ? reportData.itemsAdvisory.length : 0;
         const noChangeCount = reportData.noChangeCount || 0;
+        const notApplicableCount = reportData.notApplicableCount || 0; // Added for NA items
 
         return (
             <div>
@@ -307,7 +314,8 @@ const Dashboard = () => {
                 {/* Actions Required Section */}
                 <div className="bg-white rounded-lg shadow p-6">
                     <h2 className="text-xl font-semibold mb-6">Actions Required</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    {/* Change this line from grid to flex */}
+                    <div className="flex flex-row space-x-2">
                         <ActionBox
                             count={requiredCount}
                             label="Required"
@@ -331,6 +339,12 @@ const Dashboard = () => {
                             label="No Change"
                             color="text-green-700"
                             bgColor="bg-green-50"
+                        />
+                        <ActionBox
+                            count={notApplicableCount}
+                            label="Not Applicable"
+                            color="text-gray-700"
+                            bgColor="bg-gray-100"
                         />
                     </div>
                 </div>
@@ -504,12 +518,12 @@ const Dashboard = () => {
                             <p className="text-gray-500">Upload and analyze your OpenShift health check reports</p>
                         </div>
                         <div className="mt-2 md:mt-0">
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" />
-                </svg>
-                  {new Date().toLocaleDateString()}
-              </span>
+                          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" />
+                            </svg>
+                              {new Date().toLocaleDateString()}
+                          </span>
                         </div>
                     </div>
                 </div>

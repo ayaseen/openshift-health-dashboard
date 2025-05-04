@@ -20,6 +20,7 @@ type ReportSummary struct {
 	ItemsRecommended         []string `json:"itemsRecommended"`
 	ItemsAdvisory            []string `json:"itemsAdvisory"`
 	NoChangeCount            int      `json:"noChangeCount"`
+	NotApplicableCount       int      `json:"notApplicableCount"` // Added for tracking N/A items
 }
 
 // Category represents a category in the health check report

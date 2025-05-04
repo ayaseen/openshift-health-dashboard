@@ -57,28 +57,63 @@ export const calculateOverallScore = (reportData) => {
     const monitoringScore = parseInt(reportData.scoreMonitoring, 10) || 0;
     const buildSecurityScore = parseInt(reportData.scoreBuildSecurity, 10) || 0;
 
-    // If all category scores are zero, return the provided overall score or a default
-    if (infraScore === 0 && governanceScore === 0 && complianceScore === 0 &&
-        monitoringScore === 0 && buildSecurityScore === 0) {
-        return parseFloat(reportData.overallScore) || 75;
+    // If we already have an overall score, use it
+    if (reportData.overallScore && parseFloat(reportData.overallScore) > 0) {
+        return parseFloat(reportData.overallScore);
     }
 
+    // If all category scores are zero, return a default
+    if (infraScore === 0 && governanceScore === 0 && complianceScore === 0 &&
+        monitoringScore === 0 && buildSecurityScore === 0) {
+        return 75.0;
+    }
+
+    // Category weights - adjust these based on importance
     const weights = {
-        infra: 0.25,
+        infra: 0.25,  // Infrastructure is critical
         governance: 0.2,
         compliance: 0.2,
         monitoring: 0.15,
         buildSecurity: 0.2
     };
 
-    const weightedSum =
-        infraScore * weights.infra +
-        governanceScore * weights.governance +
-        complianceScore * weights.compliance +
-        monitoringScore * weights.monitoring +
-        buildSecurityScore * weights.buildSecurity;
+    // Calculate weighted average
+    const totalWeight = Object.values(weights).reduce((sum, w) => sum + w, 0);
 
-    return parseFloat(weightedSum.toFixed(1));
+    // Only include categories with non-zero scores
+    let weightedSum = 0;
+    let usedWeight = 0;
+
+    if (infraScore > 0) {
+        weightedSum += infraScore * weights.infra;
+        usedWeight += weights.infra;
+    }
+
+    if (governanceScore > 0) {
+        weightedSum += governanceScore * weights.governance;
+        usedWeight += weights.governance;
+    }
+
+    if (complianceScore > 0) {
+        weightedSum += complianceScore * weights.compliance;
+        usedWeight += weights.compliance;
+    }
+
+    if (monitoringScore > 0) {
+        weightedSum += monitoringScore * weights.monitoring;
+        usedWeight += weights.monitoring;
+    }
+
+    if (buildSecurityScore > 0) {
+        weightedSum += buildSecurityScore * weights.buildSecurity;
+        usedWeight += weights.buildSecurity;
+    }
+
+    if (usedWeight > 0) {
+        return parseFloat((weightedSum / usedWeight).toFixed(1));
+    }
+
+    return 75.0; // Default if we can't calculate
 };
 
 // Get severity level colors and labels
@@ -92,6 +127,8 @@ export const getSeverityLevel = (type) => {
             return { color: 'text-blue-700', bgColor: 'bg-blue-50', borderColor: 'border-blue-100' };
         case 'no change':
             return { color: 'text-green-700', bgColor: 'bg-green-50', borderColor: 'border-green-100' };
+        case 'not applicable':
+            return { color: 'text-gray-700', bgColor: 'bg-gray-100', borderColor: 'border-gray-200' };
         default:
             return { color: 'text-gray-700', bgColor: 'bg-gray-50', borderColor: 'border-gray-100' };
     }
